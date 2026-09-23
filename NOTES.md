@@ -67,9 +67,14 @@ Vérifié en lisant le code, pas supposé :
 
 - `TIMEOUT` est en **minutes**, défaut 300 → `timeout=18000s` = 5 h. Généreux, pas trop court.
   Le commentaire du code note qu'un timeout trop haut rend le provisionnement GPU plus dur.
-- `max_trajectories` existe déjà comme paramètre → plafond dur disponible.
-- `enable_rejection_check` + `acceptance_rate` : le script s'arrête de lui-même si le taux
-  d'acceptation s'effondre. Pas de risque de boucle qui brûle les crédits toute la nuit.
+- `max_trajectories` existe déjà comme paramètre → plafond disponible. ⚠️ **Corrigé après le
+  run `test1` :** il plafonne les trajectoires *réussies*, pas les tentatives. Voir la section
+  du run.
+- `enable_rejection_check` + `acceptance_rate` : le script s'arrête si le taux d'acceptation
+  s'effondre. ⚠️ **Corrigé après `test1` :** inopérant sur un run court, parce que
+  `start_monitoring` vaut **600** — le contrôle ne démarre qu'après 600 trajectoires.
+  L'affirmation initiale « pas de risque de boucle qui brûle les crédits » était fausse :
+  elle n'est vraie qu'avec un `--max-trajectories` explicite.
 
 ## Coûts attendus
 
