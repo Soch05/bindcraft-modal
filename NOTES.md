@@ -85,22 +85,69 @@ Du docstring de la référence, pour **3** designs sur PDL1 :
 règle 9. **GPU retenu : L40S** (48 Go, défaut de la référence) — surdimensionné pour cette
 cible, mais généralement plus rapide à provisionner qu'un A100.
 
+## Smoke test `check_gpu` — PASSÉ (23/09)
+
+Workspace Modal : `soch05`.
+
+```
+GPU=L40S .venv/bin/modal run modal_bindcraft.py::check_gpu
+```
+
+Sortie réelle, premier build (~10 min) :
+
+```
+NVIDIA-SMI 580.95.05   Driver Version: 580.95.05   CUDA Version: 13.0
+NVIDIA L40S    3MiB / 46068MiB
+jax 0.6.2 | jaxlib 0.6.2 | numpy 1.26.4
+jax.devices() -> [CudaDevice(id=0)]
+Built image im-7noEgKlToD1tPPeGN48xzI
+```
+
+**Versions effectivement résolues** (à noter : `jax[cuda]<0.7.0` donne **0.6.2**, et
+`numpy<2.0` donne **1.26.4**. Ce sont les versions à réépingler à l'identique si un
+run futur casse) :
+
+| Composant | Résolu |
+|---|---|
+| jax / jaxlib | 0.6.2 |
+| numpy | 1.26.4 |
+| driver NVIDIA | 580.95.05, CUDA 13.0 |
+| GPU | L40S, 46 Go |
+
+Poids AF2 présents dans l'image : 16 fichiers — les 5 modèles en 3 variantes
+(`params_model_N.npz`, `_ptm`, `_multimer_v3`) + LICENSE.
+Les deux JSON de settings par défaut présents et non modifiés.
+
+**Cache de build vérifié :** 2ᵉ exécution de la même commande = **12 s** de bout en bout,
+aucune ligne `Built image`. L'image et les 5,3 Go de poids viennent du cache. Le choix de
+laisser les poids dans l'Image est donc validé en pratique.
+
 ## Journal des runs
 
 | Date | Commande | GPU | Durée | Coût | Trajectoires | Acceptés |
 |---|---|---|---|---|---|---|
-| — | _aucun run encore : token Modal pas configuré_ | — | — | — | — | — |
+| 23/09 | `check_gpu` (1er build) | L40S | ~10 min | ~0 (GPU qq s) | — | — |
+| 23/09 | `check_gpu` (cache) | L40S | 12 s | ~0 | — | — |
+| — | _run PDL1 : pas encore lancé_ | — | — | — | — | — |
 
 ## Critères d'acceptation — état
 
-- [ ] `jax.devices()` → GPU CUDA visible (fonction `check_gpu` écrite, pas encore lancée)
-- [ ] Image se construit, 2e build caché
-- [ ] Poids AF2 ne se retéléchargent pas (dans l'Image, donc cachés avec la couche)
-- [ ] Run détaché sur PDL1 sans exception
+- [x] `jax.devices()` → GPU CUDA visible : `[CudaDevice(id=0)]` sur L40S
+- [x] Image se construit sans erreur, 2e build caché (10 min → 12 s)
+- [x] Poids AF2 ne se retéléchargent pas (cachés avec la couche de l'Image)
+- [ ] Run détaché sur `PDL1.pdb` sans exception
 - [ ] `modal volume get` ramène les sorties
 - [ ] `Trajectory/`, `MPNN/`, `Accepted/`, `final_design_stats.csv`, `failure_csv.csv` existent
 - [ ] On sait lire `failure_csv.csv`
-- [ ] Durée et coût notés ici
+- [ ] Durée et coût du run notés ici
 
-**Bloquant actuel :** `~/.modal.toml` absent. `modal setup` doit être lancé à la main
-(ouvre un navigateur) — pas automatisable depuis l'agent.
+## Risque identifié sur le run réel
+
+`--number-of-final-designs 1` est un critère d'arrêt sur le **résultat**, pas sur l'effort :
+le pipeline boucle jusqu'à ce qu'un design passe tous les filtres. L'estimation de ~$1 /
+30 min suppose qu'un design passe vite. Si aucun ne passe, le run continue jusqu'à
+l'arrêt par `enable_rejection_check` ou jusqu'au timeout de **5 h** — ce qui sortirait
+largement du seuil « quelques dollars » de la règle 9.
+
+D'où l'usage de `--max-trajectories` comme plafond dur sur le premier run. Le test valide
+la plomberie, et CLAUDE.md dit explicitement que zéro design accepté ne l'invalide pas.
