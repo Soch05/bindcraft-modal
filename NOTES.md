@@ -128,18 +128,128 @@ laisser les poids dans l'Image est donc validé en pratique.
 |---|---|---|---|---|---|---|
 | 23/09 | `check_gpu` (1er build) | L40S | ~10 min | ~0 (GPU qq s) | — | — |
 | 23/09 | `check_gpu` (cache) | L40S | 12 s | ~0 | — | — |
-| — | _run PDL1 : pas encore lancé_ | — | — | — | — | — |
+| 23/09 | run `test1` (ci-dessous) | L40S | **47 min 25 s** | **$1,54** | 4 lancées / 3 réussies | **1** |
+
+## Run `test1` — PDL1, PASSÉ (23/09)
+
+```bash
+GPU=L40S .venv/bin/modal run --detach modal_bindcraft.py \
+  --input-pdb inputs/PDL1.pdb --number-of-final-designs 1 \
+  --max-trajectories 3 --run-name test1
+```
+
+App `ap-OoBXPM6BtVeYmf4qGauJUA`. **47 min 25 s**, 78 fichiers, coût **$1,54**
+(2845 s × $0,000542/s). Terminé sans exception, app en état `stopped`.
+
+### Baseline par trajectoire — le chiffre à réutiliser
+
+| # | Binder | Résultat | Durée |
+|---|---|---|---|
+| 1 | `l112_s900583` | ✓ pLDDT 0,83 | 8 min 24 |
+| 2 | `l94_s179902` | ✓ pLDDT 0,89 | 5 min 38 |
+| 3 | `l55_s851460` | ✗ rejetée | 3 min 21 |
+| 4 | `l81_s625098` | ✓ pLDDT 0,95 | 5 min 22 |
+
+**~5,5 min par trajectoire sur L40S (~$0,18)**, plus un surcoût unique de ~3 min sur la
+première : elle paie la **compilation JIT de JAX**, que les suivantes réutilisent. Ne pas
+dimensionner sur les 8 min 24 de la première, c'est un artefact de démarrage.
+
+### Deux pièges découverts en lisant les logs
+
+1. **`--max-trajectories` plafonne les trajectoires RÉUSSIES, pas les tentatives.**
+   4 lancées pour un plafond de 3, parce que la n°3 a été rejetée et n'est pas comptée
+   (`check_n_trajectories` compte les fichiers produits). Le coût réel peut donc dépasser
+   le plafond × durée unitaire. À intégrer dans toute estimation future.
+2. **`start_monitoring: 600`** : le garde-fou `enable_rejection_check` ne s'active qu'après
+   **600** trajectoires. Il ne protège donc pas un run court. Sans `--max-trajectories`,
+   le seul frein est le timeout de 5 h, soit ~$10 sur L40S.
+
+Noté aussi : un avertissement `Modal Client → Modal Worker Heartbeat attempt failed` est
+apparu en cours de run. Le client local perd le contact, le job continue côté Modal.
+C'est exactement ce que `--detach` garantit — validé en conditions réelles.
+
+### Design accepté
+
+`final_design_stats.csv` — 1 ligne, 232 colonnes. `Accepted/Ranked/1_PDL1_l81_s625098_mpnn3_model1.pdb`
+
+| Métrique | Valeur | Seuil par défaut |
+|---|---|---|
+| Design | `PDL1_l81_s625098_mpnn3` (81 aa) | |
+| Average_pLDDT | 0,93 | > 0,8 |
+| Average_pTM | 0,89 | > 0,55 |
+| Average_i_pTM | 0,86 | > 0,5 |
+| Average_i_pAE | 0,16 | < 0,35 |
+| Average_ShapeComplementarity | 0,61 | > 0,6 |
+| Average_dG | −46,84 | < 0 |
+| Average_dSASA | 1840,18 | > 1 |
+| Average_n_InterfaceResidues | 20 | > 7 |
+| Average_n_InterfaceHbonds | 8 | > 3 |
+| Average_n_InterfaceUnsatHbonds | 3,5 | < 4 |
+| Average_Surface_Hydrophobicity | 0,33 | < 0,35 |
+
+Séquence : `ALVTIDENAPVTYETVPKVIGRISRAAMGLSAEQMREVNYKIVEIWETASHEIHKGETEKTKELILEVVE…`
+
+### Lire `failure_csv.csv` — comment faire et ce qu'il dit
+
+Une seule ligne de données, 64 colonnes = un compteur par filtre. Les rejets portent sur les
+**séquences MPNN** (jusqu'à 20 par trajectoire, évaluées sur plusieurs modèles AF2), pas sur
+les trajectoires — d'où 156 rejets pour 19 designs MPNN dans `mpnn_design_stats.csv`.
+
+```python
+import csv
+r = list(csv.reader(open('failure_csv.csv')))
+nz = [(h, int(v)) for h, v in zip(r[0], r[1]) if v.strip() not in ('', '0')]
+for h, v in sorted(nz, key=lambda x: -x[1]): print(f"{v:>3}x  {h}")
+```
+
+Résultat sur `test1` — 9 filtres sur 64 ont rejeté au moins une fois :
+
+| Rejets | Filtre |
+|---|---|
+| 38 | `i_pAE` |
+| 35 | `i_pTM` |
+| 30 | `pTM` |
+| 20 | `pLDDT` |
+| 14 | `ShapeComplementarity` |
+| 12 | `n_InterfaceUnsatHbonds` |
+| 5 | `Surface_Hydrophobicity` |
+| 1 | `Trajectory_logits_pLDDT` |
+| 1 | `Trajectory_Clashes` |
+
+**Lecture :** le goulot est la **confiance de l'interface** (`i_pAE`, `i_pTM`, `pTM`), pas la
+géométrie ni la chimie de surface. C'est le mode d'échec attendu de BindCraft : AF2 ne croit
+pas assez au complexe. Les filtres physiques (clashes, hydrophobicité) ne rejettent presque
+rien. C'est une information sur la difficulté de la cible, pas un réglage à corriger.
+
+### Contenu rapatrié
+
+```
+out/test1/
+├── Trajectory/   (6 fichiers)  + Animation/ Clashing/ LowConfidence/ Plots/ Relaxed/
+├── MPNN/        (38 fichiers)  + Binder/ Relaxed/ Sequences/
+├── Accepted/    (12 fichiers)  + Animation/ Pickle/ Plots/ Ranked/
+├── Rejected/
+├── trajectory_stats.csv       (3 lignes)
+├── mpnn_design_stats.csv     (19 lignes)
+├── final_design_stats.csv     (1 ligne)
+└── failure_csv.csv
+```
 
 ## Critères d'acceptation — état
 
 - [x] `jax.devices()` → GPU CUDA visible : `[CudaDevice(id=0)]` sur L40S
 - [x] Image se construit sans erreur, 2e build caché (10 min → 12 s)
 - [x] Poids AF2 ne se retéléchargent pas (cachés avec la couche de l'Image)
-- [ ] Run détaché sur `PDL1.pdb` sans exception
-- [ ] `modal volume get` ramène les sorties
-- [ ] `Trajectory/`, `MPNN/`, `Accepted/`, `final_design_stats.csv`, `failure_csv.csv` existent
-- [ ] On sait lire `failure_csv.csv`
-- [ ] Durée et coût du run notés ici
+- [x] Run détaché sur `PDL1.pdb` sans exception (47 min 25 s, app `stopped`)
+- [x] `modal volume get bindcraft test1 ./out/` ramène les sorties (78 fichiers)
+- [x] `Trajectory/`, `MPNN/`, `Accepted/`, `final_design_stats.csv`, `failure_csv.csv` existent
+- [x] On sait lire `failure_csv.csv` : goulot = confiance d'interface (i_pAE 38, i_pTM 35, pTM 30)
+- [x] Durée et coût du run notés ici : 47 min 25 s, $1,54
+
+**Les 8 critères d'acceptation sont remplis. L'étape « test » est passée.**
+
+Bonus non requis : 1 design a passé tous les filtres par défaut, sans qu'aucun seuil
+n'ait été touché.
 
 ## Risque identifié sur le run réel
 
