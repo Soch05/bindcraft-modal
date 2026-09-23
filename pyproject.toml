@@ -1,0 +1,10 @@
+[project]
+name = "bindcraft-modal"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "modal==1.5.5",
+    # cbor2 6.x builds a Rust extension and ships no wheel for macOS x86_64, so a
+    # bare `uv pip install modal` fails on this machine. 5.9.0 has a wheel.
+    "cbor2==5.9.0",
+]
