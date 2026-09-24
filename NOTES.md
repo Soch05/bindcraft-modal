@@ -265,15 +265,31 @@ plus étroit que l'état réel du dépôt.
 
 ### Pourquoi c'est une nécessité et non une optimisation
 
-Avec la baseline de ~5,5 min/trajectoire, 500 trajectoires demandent **45 h 50** en
-séquentiel — donc c'est **impossible** en un run, le timeout étant de 5 h (~50 trajectoires
-max). Le coût en GPU-heures est le *même* en parallèle ; ce qui change, c'est le temps mural
-et la faisabilité.
+500 trajectoires demandent **~75 GPU-heures**, donc c'est **impossible** en un run, le
+timeout étant de 5 h (~33 trajectoires max). Le coût en GPU-heures est le *même* en
+parallèle ; ce qui change, c'est le temps mural et la faisabilité.
 
-| | 25 shards × 20 traj | 50 shards × 10 traj |
+### ⚠️ Correction de baseline — les 5,5 min étaient trompeurs
+
+**La baseline de ~5,5 min/trajectoire tirée de `test1` était la durée de la descente de
+gradient seule, pas du cycle complet.** Mesuré sur `par-test2` : **9,0 min par trajectoire
+complète**, soit un facteur 1,6.
+
+La raison est structurelle. Dans `test1`, `number_of_final_designs=1` arrêtait le run dès le
+premier design accepté, donc peu de cycles MPNN étaient exécutés. En mode shard ce paramètre
+est neutralisé à `10**9`, si bien que **chaque** trajectoire réussie enchaîne le cycle MPNN
+complet : ~20 séquences générées, chacune repliée par AF2 puis scorée par PyRosetta. C'est ce
+cycle, et non la descente de gradient, qui domine le temps.
+
+Conséquence sur les estimations, à corriger partout :
+
+| | Estimé (faux) | Réel |
 |---|---|---|
-| Temps mural | ~1 h 55 | ~58 min |
-| Coût | ~$92 | ~$94 |
+| Par trajectoire | 5,5 min | **9,0 min** |
+| `par-test2` (12 traj) | $1,90 | **$3,52** (×1,85) |
+| 500 trajectoires | ~$92 | **~$147** |
+
+**Pour dimensionner : compter 9 min et $0,29 par trajectoire**, pas 5,5 min.
 
 ### Architecture : trois éléments
 
@@ -325,12 +341,47 @@ Agrégation correcte : `trajectory_stats` 2 lignes (1/shard), `mpnn_design_stats
 (2/shard), `failure_csv` sommé à 109 rejets sur 7 filtres. Profil identique à `test1` —
 `i_pAE` 36, `i_pTM` 33, `pTM` 28 — ce qui confirme la reproductibilité du diagnostic.
 
-**⚠️ Trou dans la validation :** 0 design accepté sur ces 2 trajectoires, donc
-`final_design_stats.csv` est vide et `Accepted/Ranked/` aussi. **Le chemin de code du
-ranking global n'a jamais été exercé** — or c'est la partie la plus fragile (mapping
-`(Shard, Design)` → ordre, `sort_key`, copie des PDB). Ne pas passer à l'échelle avant de
-l'avoir exercé avec au moins 2 designs acceptés. Zéro accepté n'invalide pas le palier 1,
-mais ne valide pas l'agrégateur en entier.
+Trou du palier 1, **comblé par le palier 2** : aucun design accepté sur ces 2 trajectoires,
+donc le chemin de code du ranking global n'avait pas été exercé.
+
+### Palier 2 : `par-test2`, 3 shards × 3 trajectoires — ranking validé
+
+```bash
+GPU=L40S .venv/bin/modal run modal_bindcraft.py::parallel \
+  --input-pdb inputs/PDL1.pdb --n-shards 3 --trajectories-per-shard 3 --run-name par-test2
+```
+
+App `ap-gSqGKjjq8qj8AW6t4N5fDY`, 3 tasks simultanées, `3 ok, 0 failed`.
+**12 trajectoires tentées pour un quota de 9 réussies** — reconfirme que le quota porte sur
+les réussies. 25 designs MPNN évalués, **8 acceptés**, 244 rejets sur 8 filtres.
+
+Durées : **29 min 46 / 32 min 10 / 46 min 21**. Temps mural 46 min 21, coût **$3,52**
+(108,3 GPU-min).
+
+**Le ranking global est correct, vérifié sur les valeurs et non sur la présence des fichiers :**
+
+| Rang | Shard | Average_i_pTM |
+|---|---|---|
+| 1 | shard-000 | 0,83 |
+| 2 | shard-000 | 0,83 |
+| 3 | shard-000 | 0,81 |
+| 4 | shard-000 | 0,80 |
+| 5 | shard-001 | 0,77 |
+| 6 | shard-001 | 0,76 |
+| 7 | shard-002 | 0,74 |
+| 8 | shard-002 | 0,72 |
+
+Décroissance stricte, les trois shards entrelacés dans un classement unique, aucun design
+tombé dans le cas par défaut du `sort_key` (qui retourne `len(order)` sur clé absente — un
+mapping cassé aurait donné un ordre arbitraire **sans erreur ni avertissement**).
+Ce contrôle est à refaire après toute modification de `aggregate`.
+
+### Déséquilibre entre shards : 56 %
+
+29 min 46 pour le plus rapide contre 46 min 21 pour le plus lent. Le temps mural étant dicté
+par le plus lent, on paie de l'attente. Cause : à 3-4 trajectoires par shard, la variance du
+nombre de tentatives et du succès MPNN est énorme. Avec 10-20 trajectoires par shard, la loi
+des grands nombres lisse ça — raison supplémentaire de ne pas faire de shards minuscules.
 
 ### Limite connue : `--detach` et le mode parallèle
 
