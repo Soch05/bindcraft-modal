@@ -1162,6 +1162,8 @@ def bindcraft_shard(shard_id: int, trajectories: int, **kwargs):
     `trajectories` caps *successful* trajectories, not attempts — rejected ones are not
     counted by check_n_trajectories — so a shard runs slightly more than this number.
     """
+    if "run_name" not in kwargs:
+        raise ValueError("bindcraft_shard needs run_name (passed via starmap's kwargs)")
     run_name = kwargs.pop("run_name")
     kwargs["design_path"] = f"{VOLUME_PATH}/{run_name}/shard-{shard_id:03d}/"
     kwargs["max_trajectories"] = trajectories
@@ -1203,8 +1205,8 @@ def aggregate(run_name: str):
 
     summary = {"run_name": run_name, "n_shards": len(shards)}
 
-    # --- the three row-per-design CSVs: concatenate, tagging each row with its shard ---
-    for name in ("trajectory_stats.csv", "mpnn_design_stats.csv", "final_design_stats.csv"):
+    def concat(name):
+        """Stack one CSV across shards, tagging each row with the shard it came from."""
         frames = []
         for s in shards:
             f = s / name
@@ -1215,7 +1217,12 @@ def aggregate(run_name: str):
                     # the same design name. Tag rows so they stay distinguishable.
                     df.insert(0, "Shard", s.name)
                     frames.append(df)
-        out = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+    # final_design_stats.csv is handled after the ranking: its Rank column needs the global
+    # order, which is only known once the accepted designs have been sorted.
+    for name in ("trajectory_stats.csv", "mpnn_design_stats.csv"):
+        out = concat(name)
         out.to_csv(root / name, index=False)
         summary[name] = len(out)
         print(f"  {name}: {len(out)} rows")
@@ -1251,11 +1258,42 @@ def aggregate(run_name: str):
         design = pdb.name.rsplit("_model", 1)[0]
         return order.get((s.name, design), len(order))
 
+    # A design missing from the CSV falls back to len(order) and sorts last, which would
+    # otherwise produce an arbitrary order with no error at all. Say so loudly.
+    missing = [
+        f"{s.name}/{pdb.name}"
+        for s, pdb in accepted
+        if (s.name, pdb.name.rsplit("_model", 1)[0]) not in order
+    ]
+    if missing:
+        print(
+            f"  WARNING: {len(missing)} accepted PDB(s) absent from mpnn_design_stats.csv;"
+            f" they sort last and their rank is meaningless: {missing[:5]}"
+        )
+        summary["unranked"] = len(missing)
+
     for rank, (s, pdb) in enumerate(sorted(accepted, key=sort_key), start=1):
         shutil.copyfile(pdb, ranked / f"{rank}_{s.name}_{pdb.name}")
 
     summary["accepted"] = len(accepted)
     print(f"  Accepted/Ranked: {len(accepted)} designs")
+
+    # --- final_design_stats.csv: renumber Rank across the union ---
+    # Each shard ranked its own designs 1..n, so a plain concatenation carries duplicate
+    # Rank values (three "Rank 1" for three shards). Renumber against the same `order` the
+    # PDBs were sorted by, so the CSV and Accepted/Ranked agree row for row.
+    final = concat("final_design_stats.csv")
+    if not final.empty and {"Rank", "Shard", "Design"} <= set(final.columns):
+        final["_pos"] = [
+            order.get((r["Shard"], r["Design"]), len(order)) for _, r in final.iterrows()
+        ]
+        final = final.sort_values("_pos", kind="stable").drop(columns="_pos")
+        final = final.reset_index(drop=True)
+        final["Rank"] = range(1, len(final) + 1)
+    final.to_csv(root / "final_design_stats.csv", index=False)
+    summary["final_design_stats.csv"] = len(final)
+    print(f"  final_design_stats.csv: {len(final)} rows, Rank renumbered globally")
+
     volume.commit()
     return summary
 
@@ -1275,11 +1313,17 @@ def parallel(
     """Run BindCraft as N independent shards, then aggregate.
 
     Cost is the same as running sequentially — you rent the same GPU-hours either way —
-    but wall time divides by n_shards, and 500 trajectories stop being impossible inside
-    the 5 h timeout.
+    but wall time divides by n_shards, and 500 trajectories stop being impossible: at
+    ~9 min each they need ~75 GPU-hours, well past the 5 h timeout of a single run.
 
-    Keep trajectories_per_shard at 10-20 in real runs: each shard pays ~3 min of JAX JIT
-    compilation, which is 35% waste at 1 trajectory per shard but only 5% at 10.
+    Size trajectories_per_shard at 15-20. Two effects push it up and one caps it:
+      - each shard pays ~3 min of JAX JIT compilation, wasted GPU time: 25% at 1
+        trajectory per shard, 3% at 10, 1.6% at 20;
+      - shard durations vary a lot (56% spread observed at 3 trajectories/shard), and
+        aggregation waits for the slowest — that costs wall time, not money, since Modal
+        bills per container per second;
+      - the 5 h timeout caps a shard at ~33 trajectories, and an unlucky shard sized for
+        20 can really take 28, so leave margin.
     """
     from datetime import datetime
 

@@ -405,6 +405,47 @@ tombé dans le cas par défaut du `sort_key` (qui retourne `len(order)` sur clé
 mapping cassé aurait donné un ordre arbitraire **sans erreur ni avertissement**).
 Ce contrôle est à refaire après toute modification de `aggregate`.
 
+### Relecture avant gel du code (24/09/2026) — un bug trouvé et corrigé
+
+Le code est gelé avant la compétition ; relecture faite à cette occasion.
+
+**Bug corrigé : la colonne `Rank` du `final_design_stats.csv` agrégé était fausse.** Chaque
+shard classe ses propres designs 1..n, donc la concaténation portait des rangs dupliqués —
+trois `Rank=1` et trois `Rank=2` sur `par-test2`. `Accepted/Ranked/` était correct, mais
+quiconque triait le CSV par `Rank` obtenait un ordre arbitraire. Symptôme silencieux :
+aucune erreur, juste des données fausses.
+
+Correction : `final_design_stats.csv` est maintenant traité **après** le ranking et
+renuméroté contre le même `order` que les PDB. Vérifié sur `par-test2` — `Rank` 1→8
+séquentiel, `i_pTM` décroissant, et les deux vues (CSV et `Accepted/Ranked/`) s'accordent
+rang par rang.
+
+Validé **sans GPU** en rejouant `aggregate` seul sur les données déjà produites :
+
+```bash
+.venv/bin/modal run modal_bindcraft.py::aggregate --run-name par-test2
+```
+
+C'est la manière de tester l'agrégation pour quelques centimes : `aggregate` n'a pas de
+`gpu=`, donc il ne consomme que du CPU.
+
+Deux durcissements au passage :
+
+- `bindcraft_shard` lève une `ValueError` explicite si `run_name` manque, au lieu d'un
+  `KeyError` opaque.
+- `aggregate` affiche un `WARNING` si un PDB accepté est absent de `mpnn_design_stats.csv`.
+  Ces designs retombent sur `len(order)` et se classent en dernier **sans erreur** ; sans
+  cet avertissement, un mapping cassé passerait inaperçu. Aucun cas sur `par-test2`.
+
+Non corrigé volontairement : pandas émet des `PerformanceWarning` (« DataFrame is highly
+fragmented ») en insérant la colonne `Shard` dans des frames à 232 colonnes. C'est de la
+performance, pas de la justesse, et négligeable à cette échelle. Modifier le code juste avant
+un gel pour un avertissement cosmétique serait un risque de régression gratuit.
+
+Vérifié aussi : `number_of_final_designs` ne sert qu'à la condition d'arrêt, donc le `10**9`
+ne casse aucun calcul ; `main` et `bindcraft` sont inchangés, leur signature intacte ; les
+six points d'entrée sont toujours découverts par Modal.
+
 ### Déséquilibre entre shards : 56 %
 
 29 min 46 pour le plus rapide contre 46 min 21 pour le plus lent. Le temps mural étant dicté
