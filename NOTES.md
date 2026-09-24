@@ -155,7 +155,12 @@ App `ap-OoBXPM6BtVeYmf4qGauJUA`. **47 min 25 s**, 78 fichiers, coût **$1,54**
 | 3 | `l55_s851460` | ✗ rejetée | 3 min 21 |
 | 4 | `l81_s625098` | ✓ pLDDT 0,95 | 5 min 22 |
 
-**~5,5 min par trajectoire sur L40S (~$0,18)**, plus un surcoût unique de ~3 min sur la
+⚠️ **Ne pas dimensionner avec le chiffre ci-dessous** — voir « Correction de baseline » dans
+la section parallélisation : c'est la durée de la descente de gradient seule, et le cycle
+complet coûte **9 min**. Ce run s'arrêtait au premier design accepté, donc il exécutait peu
+de cycles MPNN.
+
+~5,5 min par trajectoire sur L40S, plus un surcoût unique de ~3 min sur la
 première : elle paie la **compilation JIT de JAX**, que les suivantes réutilisent. Ne pas
 dimensionner sur les 8 min 24 de la première, c'est un artefact de démarrage.
 
