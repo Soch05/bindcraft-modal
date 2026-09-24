@@ -1148,6 +1148,177 @@ def _bindcraft(
     return {"design_path": design_path, "n_files": len(out_files), "files": out_files}
 
 
+@app.function(
+    image=image, gpu=GPU, timeout=TIMEOUT * 60, volumes={VOLUME_PATH: volume}
+)
+def bindcraft_shard(shard_id: int, trajectories: int, **kwargs):
+    """One independent slice of a parallel run.
+
+    Each shard gets its own `design_path`, which is what makes sharding safe: the four
+    CSVs are built under `target_settings["design_path"]`, so separate paths mean no two
+    containers ever write the same file. Modal volumes are last-write-wins, so sharing a
+    path would silently lose data.
+
+    `trajectories` caps *successful* trajectories, not attempts — rejected ones are not
+    counted by check_n_trajectories — so a shard runs slightly more than this number.
+    """
+    run_name = kwargs.pop("run_name")
+    kwargs["design_path"] = f"{VOLUME_PATH}/{run_name}/shard-{shard_id:03d}/"
+    kwargs["max_trajectories"] = trajectories
+    # Neutralise the result-based stop condition. The loop breaks once
+    # accepted_designs >= number_of_final_designs, so leaving it at 1 would make every
+    # shard quit at its first success — paying for N container starts and N JIT warmups
+    # to get barely more than a single-container run.
+    kwargs["number_of_final_designs"] = 10**9
+
+    print(f"[shard {shard_id:03d}] starting, quota {trajectories} trajectories")
+    try:
+        return _bindcraft(**kwargs)
+    finally:
+        volume.commit()
+
+
+@app.function(image=image, timeout=1800, volumes={VOLUME_PATH: volume})
+def aggregate(run_name: str):
+    """Merge the shards into one result set. Deliberately has no `gpu=`.
+
+    Concatenation and ranking are pandas work; renting a GPU for them would be pure
+    waste. Per-shard rankings are meaningless on their own — N shards each produce their
+    own "rank 1" — so the ranking is redone across the union.
+    """
+    import shutil
+    from pathlib import Path
+
+    import pandas as pd
+
+    # Mandatory: a volume shows nothing written by other containers since it was mounted
+    # until it is reloaded.
+    volume.reload()
+
+    root = Path(VOLUME_PATH) / run_name
+    shards = sorted(p for p in root.glob("shard-*") if p.is_dir())
+    print(f"aggregating {len(shards)} shards under {root}")
+    if not shards:
+        return {"error": f"no shard-* directory under {root}"}
+
+    summary = {"run_name": run_name, "n_shards": len(shards)}
+
+    # --- the three row-per-design CSVs: concatenate, tagging each row with its shard ---
+    for name in ("trajectory_stats.csv", "mpnn_design_stats.csv", "final_design_stats.csv"):
+        frames = []
+        for s in shards:
+            f = s / name
+            if f.is_file():
+                df = pd.read_csv(f)
+                if not df.empty:
+                    # Seeds are drawn from only 999999 values, so two shards can generate
+                    # the same design name. Tag rows so they stay distinguishable.
+                    df.insert(0, "Shard", s.name)
+                    frames.append(df)
+        out = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        out.to_csv(root / name, index=False)
+        summary[name] = len(out)
+        print(f"  {name}: {len(out)} rows")
+
+    # --- failure_csv: one row of per-filter counters, summed across shards ---
+    fails = [pd.read_csv(s / "failure_csv.csv") for s in shards if (s / "failure_csv.csv").is_file()]
+    if fails:
+        total = pd.concat(fails, ignore_index=True).sum(numeric_only=True).to_frame().T
+        total.to_csv(root / "failure_csv.csv", index=False)
+        nz = {c: int(v) for c, v in total.iloc[0].items() if v}
+        summary["rejections"] = sum(nz.values())
+        print(f"  failure_csv.csv: {sum(nz.values())} rejections across {len(nz)} filters")
+        for c, v in sorted(nz.items(), key=lambda kv: -kv[1])[:10]:
+            print(f"      {v:>4}x  {c}")
+
+    # --- global ranking over every accepted design ---
+    ranked = root / "Accepted" / "Ranked"
+    if ranked.exists():
+        shutil.rmtree(ranked)
+    ranked.mkdir(parents=True, exist_ok=True)
+
+    accepted = [(s, pdb) for s in shards for pdb in sorted((s / "Accepted").glob("*.pdb"))]
+    mpnn = root / "mpnn_design_stats.csv"
+    order = {}
+    if mpnn.is_file():
+        df = pd.read_csv(mpnn)
+        if not df.empty and "Average_i_pTM" in df.columns and "Design" in df.columns:
+            df = df.sort_values("Average_i_pTM", ascending=False)
+            order = {(r["Shard"], r["Design"]): i for i, (_, r) in enumerate(df.iterrows())}
+
+    def sort_key(item):
+        s, pdb = item
+        design = pdb.name.rsplit("_model", 1)[0]
+        return order.get((s.name, design), len(order))
+
+    for rank, (s, pdb) in enumerate(sorted(accepted, key=sort_key), start=1):
+        shutil.copyfile(pdb, ranked / f"{rank}_{s.name}_{pdb.name}")
+
+    summary["accepted"] = len(accepted)
+    print(f"  Accepted/Ranked: {len(accepted)} designs")
+    volume.commit()
+    return summary
+
+
+@app.local_entrypoint()
+def parallel(
+    input_pdb: str,
+    n_shards: int = 2,
+    trajectories_per_shard: int = 1,
+    target_chains: str = "A",
+    target_hotspot_residues: str = "",
+    lengths: str = "50,130",
+    binder_name: str | None = None,
+    run_name: str | None = None,
+    out_dir: str = "./out/bindcraft",
+):
+    """Run BindCraft as N independent shards, then aggregate.
+
+    Cost is the same as running sequentially — you rent the same GPU-hours either way —
+    but wall time divides by n_shards, and 500 trajectories stop being impossible inside
+    the 5 h timeout.
+
+    Keep trajectories_per_shard at 10-20 in real runs: each shard pays ~3 min of JAX JIT
+    compilation, which is 35% waste at 1 trajectory per shard but only 5% at 10.
+    """
+    from datetime import datetime
+
+    today = datetime.now().strftime("%Y%m%d%H%M")[2:]
+    run_name = run_name or f"par{today}"
+    binder_name = binder_name or Path(input_pdb).stem
+    pdb_str = open(input_pdb).read()
+    lengths_list = [int(i) for i in lengths.split(",")]
+
+    total = n_shards * trajectories_per_shard
+    print(f"run_name={run_name}  GPU={GPU}  {n_shards} shards x {trajectories_per_shard}"
+          f" = {total} trajectories (successful)")
+
+    common = dict(
+        run_name=run_name,
+        binder_name=binder_name,
+        pdb_str=pdb_str,
+        chains=target_chains,
+        target_hotspot_residues=target_hotspot_residues,
+        lengths=lengths_list,
+    )
+
+    # return_exceptions: one dead shard must not take the others down with it.
+    results = list(
+        bindcraft_shard.starmap(
+            [(i, trajectories_per_shard) for i in range(n_shards)],
+            kwargs=common,
+            return_exceptions=True,
+        )
+    )
+    failed = [(i, r) for i, r in enumerate(results) if isinstance(r, Exception)]
+    print(f"shards done: {len(results) - len(failed)} ok, {len(failed)} failed")
+    for i, exc in failed:
+        print(f"  shard {i:03d} raised {type(exc).__name__}: {exc}")
+
+    print(aggregate.remote(run_name))
+    print(f"now run:  modal volume get bindcraft {run_name} {out_dir}")
+
+
 @app.local_entrypoint()
 def main(
     input_pdb: str,

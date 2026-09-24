@@ -256,6 +256,90 @@ out/test1/
 Bonus non requis : 1 design a passé tous les filtres par défaut, sans qu'aucun seuil
 n'ait été touché.
 
+## Parallélisation — palier 1 validé (24/09/2026)
+
+⚠️ **Extension de périmètre.** La parallélisation est listée dans les anti-objectifs de
+`CLAUDE.md`. Ce travail a été fait sur demande explicite de l'utilisateur, après que le
+conflit ait été signalé. `CLAUDE.md` n'a pas été mis à jour et décrit donc un périmètre
+plus étroit que l'état réel du dépôt.
+
+### Pourquoi c'est une nécessité et non une optimisation
+
+Avec la baseline de ~5,5 min/trajectoire, 500 trajectoires demandent **45 h 50** en
+séquentiel — donc c'est **impossible** en un run, le timeout étant de 5 h (~50 trajectoires
+max). Le coût en GPU-heures est le *même* en parallèle ; ce qui change, c'est le temps mural
+et la faisabilité.
+
+| | 25 shards × 20 traj | 50 shards × 10 traj |
+|---|---|---|
+| Temps mural | ~1 h 55 | ~58 min |
+| Coût | ~$92 | ~$94 |
+
+### Architecture : trois éléments
+
+- **`bindcraft_shard`** — un `design_path` par shard (`/outputs/<run>/shard-NNN/`).
+  C'est ce qui rend le sharding sûr : les 4 CSV sont construits sous `design_path`, donc
+  des chemins distincts garantissent qu'aucun fichier n'est écrit par deux conteneurs.
+  Les volumes Modal sont *last-write-wins* : un chemin partagé perdrait des données
+  **en silence**.
+- **`aggregate`** — **sans `gpu=`** : concaténer des CSV sur un GPU serait du gaspillage.
+  Appelle `volume.reload()`, sans quoi il ne verrait rien de ce que les shards ont écrit.
+  Refait le ranking sur l'**union** (N shards produisent chacun leur « rank 1 »).
+- **`parallel`** — `starmap(..., return_exceptions=True)` pour qu'un shard mort n'emporte
+  pas les autres.
+
+### Deux pièges coûteux, traités dans le code
+
+1. **`number_of_final_designs` doit être neutralisé dans les shards** (mis à `10**9`).
+   La boucle s'arrête dès que `accepted_designs >= number_of_final_designs` : le laisser à 1
+   ferait quitter chaque shard à son premier succès, payant N démarrages et N compilations
+   JIT pour à peine plus qu'un run simple.
+2. **Le surcoût JIT se paie par shard** (~3 min). Il dicte le découpage :
+
+| Trajectoires/shard | Gaspillage JIT |
+|---|---|
+| 1 | **35 %** |
+| 10 | 5 % |
+| 20 | 3 % |
+
+   → viser **10-20 trajectoires par shard** en production. Une trajectoire par conteneur
+   est le réflexe naïf et le pire choix.
+
+### Résultat du palier 1 : `par-test`, 2 shards × 1 trajectoire
+
+```bash
+GPU=L40S .venv/bin/modal run modal_bindcraft.py::parallel \
+  --input-pdb inputs/PDL1.pdb --n-shards 2 --trajectories-per-shard 1 --run-name par-test
+```
+
+App `ap-z5GmI837qeAfVTG0d5z2xh`, **2 tasks simultanées** confirmées. `2 ok, 0 failed`.
+Durées : shard-000 **7 min 59**, shard-001 **12 min 33** → temps mural 12 min 33,
+coût **$0,67** (20,5 GPU-min).
+
+**Les seeds diffèrent bien entre conteneurs** — c'était le point critique, car des seeds
+identiques rendraient la parallélisation inutile. Observé : `PDL1_l101_s151500` et
+`PDL1_l105_s353332`. `np.random` non seedé ([modal_bindcraft.py:371](modal_bindcraft.py#L371))
+s'initialise sur l'entropie de l'OS, donc aucun patch n'est nécessaire. Vérifié, pas supposé.
+
+Agrégation correcte : `trajectory_stats` 2 lignes (1/shard), `mpnn_design_stats` 4 lignes
+(2/shard), `failure_csv` sommé à 109 rejets sur 7 filtres. Profil identique à `test1` —
+`i_pAE` 36, `i_pTM` 33, `pTM` 28 — ce qui confirme la reproductibilité du diagnostic.
+
+**⚠️ Trou dans la validation :** 0 design accepté sur ces 2 trajectoires, donc
+`final_design_stats.csv` est vide et `Accepted/Ranked/` aussi. **Le chemin de code du
+ranking global n'a jamais été exercé** — or c'est la partie la plus fragile (mapping
+`(Shard, Design)` → ordre, `sort_key`, copie des PDB). Ne pas passer à l'échelle avant de
+l'avoir exercé avec au moins 2 designs acceptés. Zéro accepté n'invalide pas le palier 1,
+mais ne valide pas l'agrégateur en entier.
+
+### Limite connue : `--detach` et le mode parallèle
+
+Modal avertit que le mode détaché ne garde en vie que **la dernière fonction déclenchée**.
+En mode parallèle on en déclenche N+1 (N shards puis `aggregate`), donc `--detach` est
+piégeux. Le palier 1 a tourné attaché. Pour un vrai run long il faudra une fonction
+orchestratrice côté serveur (qui appelle `starmap` depuis un conteneur Modal) plutôt qu'un
+`local_entrypoint` qui orchestre depuis le laptop.
+
 ## Risque identifié sur le run réel
 
 `--number-of-final-designs 1` est un critère d'arrêt sur le **résultat**, pas sur l'effort :
