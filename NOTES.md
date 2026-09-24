@@ -315,16 +315,40 @@ Conséquence sur les estimations, à corriger partout :
    La boucle s'arrête dès que `accepted_designs >= number_of_final_designs` : le laisser à 1
    ferait quitter chaque shard à son premier succès, payant N démarrages et N compilations
    JIT pour à peine plus qu'un run simple.
-2. **Le surcoût JIT se paie par shard** (~3 min). Il dicte le découpage :
+2. **Le surcoût JIT se paie par shard** (~3 min de GPU payées à ne rien produire). Il dicte
+   le découpage. Gaspillage = `3/(3+9k)` avec k trajectoires par shard :
 
 | Trajectoires/shard | Gaspillage JIT |
 |---|---|
-| 1 | **35 %** |
-| 10 | 5 % |
-| 20 | 3 % |
+| 1 | 25 % |
+| 5 | 6 % |
+| 10 | 3 % |
+| 20 | 1,6 % |
 
-   → viser **10-20 trajectoires par shard** en production. Une trajectoire par conteneur
-   est le réflexe naïf et le pire choix.
+   *(Un tableau antérieur annonçait 35 % à k=1 ; il était calculé sur la baseline erronée de
+   5,5 min. Corrigé sur 9 min.)*
+
+### Dimensionner les shards : deux effets de nature différente, et un plafond dur
+
+- **Le JIT gaspille de l'argent** — des GPU-minutes payées pour compiler. Argument pour de
+  gros shards.
+- **Le déséquilibre gaspille du temps, pas de l'argent.** Modal facture à la seconde et par
+  conteneur : le shard qui finit en 29 min arrête de facturer à 29 min. Les 17 min d'écart
+  avec le plus lent ne coûtent rien, elles retardent seulement l'agrégation, qui attend tout
+  le monde. Argument pour de gros shards aussi, mais pour une autre raison.
+- **Plafond : le timeout de 5 h.** À 9 min/trajectoire, un shard plafonne à ~33 trajectoires.
+  Avec les 56 % de déséquilibre observés, un shard dimensionné pour 20 trajectoires (180 min)
+  peut réellement en prendre 280 — proche des 300. Il faut donc de la marge.
+
+| Trajectoires/shard | Verdict |
+|---|---|
+| 1-3 | gaspillage JIT, variance ingérable |
+| **15-20** | **zone recommandée** — JIT ~2 %, marge confortable au timeout |
+| 25-33 | possible, mais un shard lent risque de mourir au timeout |
+| > 33 | impossible sans augmenter `TIMEOUT` |
+
+Pour 500 trajectoires : **25-33 shards × 15-20 trajectoires**, ~$147, temps mural ~3 h —
+et l'orchestration côté serveur devient obligatoire à cette durée.
 
 ### Résultat du palier 1 : `par-test`, 2 shards × 1 trajectoire
 
