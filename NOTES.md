@@ -446,6 +446,53 @@ Vérifié aussi : `number_of_final_designs` ne sert qu'à la condition d'arrêt,
 ne casse aucun calcul ; `main` et `bindcraft` sont inchangés, leur signature intacte ; les
 six points d'entrée sont toujours découverts par Modal.
 
+### `par-test3` (24/09) — run tué par une panne réseau locale
+
+Test de non-régression après la correction du `Rank`, lancé en 2 shards × 2 trajectoires.
+**Le run a échoué**, exit code 1, mais **pas à cause du code** :
+
+```
+socket.gaierror: [Errno 8] nodename nor servname provided, or not known
+modal.exception.ConnectionError
+Modal Client → Modal Worker heartbeat attempts have been failing for over 14.98 minutes
+```
+
+Échec de résolution DNS **sur le laptop** : la machine a perdu le réseau (veille, couvercle
+fermé, coupure) pendant le run. Les heartbeats ont échoué 15 min, puis le client a abandonné
+et l'app a été arrêtée.
+
+**C'est la démonstration en conditions réelles du verrou déjà identifié** : l'orchestration
+vit dans le `local_entrypoint`, donc sur le laptop. Ce n'est plus un risque théorique.
+
+#### Manœuvre de récupération — à connaître, elle évite de repayer le GPU
+
+Le `volume.commit()` dans le `finally` de `bindcraft_shard` a sauvé le travail : les deux
+shards avaient leurs 4 CSV et leurs dossiers dans le Volume. Seul `aggregate` n'avait pas
+tourné. Il suffit de le rejouer seul, **sans GPU** :
+
+```bash
+.venv/bin/modal run modal_bindcraft.py::aggregate --run-name <run>
+```
+
+Le travail GPU déjà payé est récupéré pour quelques centimes. C'est le bénéfice concret
+d'avoir séparé `aggregate` des shards et de l'avoir laissé sans `gpu=`.
+
+Résultat : 3 trajectoires réussies (au lieu de 4, les shards ayant été tués), 28 designs
+MPNN, 91 rejets, **1 design accepté**. Aucun `WARNING` d'orphelin.
+
+#### Ce que ce test valide, et ce qu'il ne valide pas
+
+- ✅ Le flux `parallel` → shards → CSV fonctionne, et `aggregate` tourne sans erreur sur des
+  données fraîches.
+- ❌ **Le classement multi-shard n'est pas exercé** : un seul design accepté, donc `Rank=1`
+  est trivialement correct. Ce test ne rejoue pas le cas qui avait révélé le bug.
+
+**La correction du `Rank` reste néanmoins validée**, et par le bon test : elle est
+entièrement contenue dans `aggregate`, pas dans les shards. Le rejeu sur `par-test2`
+(3 shards, 8 designs acceptés, `Rank` 1→8 vérifié, CSV et `Accepted/Ranked` d'accord rang
+par rang) exerce exactement le chemin de code modifié. Un flux complet n'y ajouterait que la
+confirmation que les shards écrivent leurs CSV — ce qui était déjà établi par `par-test2`.
+
 ### Déséquilibre entre shards : 56 %
 
 29 min 46 pour le plus rapide contre 46 min 21 pour le plus lent. Le temps mural étant dicté
