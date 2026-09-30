@@ -518,3 +518,115 @@ largement du seuil « quelques dollars » de la règle 9.
 
 D'où l'usage de `--max-trajectories` comme plafond dur sur le premier run. Le test valide
 la plomberie, et CLAUDE.md dit explicitement que zéro design accepté ne l'invalide pas.
+
+---
+
+## Carte d'épitope EGFR (30/09/2026) — `egfr_epitope_map.py`
+
+Premier run décisionnel du Challenge 1. Local, CPU, coût nul. Aucune dépense GPU ne doit
+précéder le choix du patch : la cross-réactivité souris se joue ici, pas au filtrage.
+
+Dépendances ajoutées à `pyproject.toml` : `biopython>=1.83` (1.88 installé),
+`numpy>=1.26` (2.5.3 installé). Aucune n'était déclarée ni installée.
+
+### UniProt n'annote pas le domaine III
+
+P00533 n'a **qu'une** feature de type `Domain` : `712-979 Protein kinase`. Aucun
+« Receptor L-domain ». Le script échouait donc sur `SystemExit` à l'étape 1.
+
+Les L-domaines n'existent que comme `Repeat` marquées « Approximate » : 75-300 et
+390-600 UniProt. La seconde vaut **366-576 mature**, décalée d'une cinquantaine de
+résidus du domaine III structural. Inutilisable comme borne.
+
+Décision : **définir la région structurellement**, depuis l'empreinte du Fab cétuximab
+(chaînes B et C de 6ARU), et ne garder la `Repeat` qu'en colonne informative
+(`uniprot_repeat2`). Aucune borne codée de mémoire — règle de CLAUDE.md respectée.
+
+`REGION_RADIUS = 30.0` Å autour du centroïde de l'empreinte. Choisi comme le plus petit
+rayon rendant la sélection **contiguë en séquence** : 311-511 avec 1 discontinuité,
+contre 7 à 25 Å. Critère structural, pas une constante à la main.
+
+### Faits établis depuis les fichiers
+
+| | |
+|---|---|
+| Offset PDB → UniProt | **+24**, 99,7 % de concordance (609 résidus observés, chaîne A 4-612) |
+| 6ARU | X-ray, **3,20 Å**, `_refine.ls_d_res_high` |
+| Conformation | **repliée (tethered)**, contacts 242-253 ↔ 563-595 = bras de dimérisation ↔ domaine IV |
+| Empreinte cétuximab | 24 résidus, 349-473, contacts lourds < 4,5 Å |
+| N-glycosylation | 13 sites humains, **0 O-linked** ; les 10 sites murins sont un **sous-ensemble strict** des humains → masquer sur l'humain couvre la souris |
+
+Conformation retenue pour le design : **repliée**, alignée sur la structure de référence
+fournie par les organisateurs. La SASA étant calculée sur la chaîne A entière,
+l'occlusion par les autres domaines dans cet état est prise en compte.
+
+### Contrôle cétuximab — passé
+
+| Ensemble | Identité humain/souris |
+|---|---|
+| Protéine entière | 90,6 % |
+| Région 311-511 | 87,2 % |
+| **Empreinte cétuximab** | **70,8 %** |
+
+L'empreinte est appauvrie en conservation par rapport aux deux références. Divergences :
+353, 418, 443, 467, 468, 471, 473.
+
+L'attendu est **inversé** par rapport à l'intuition : le cétuximab ne reconnaissant pas
+l'EGFR murin, une fonction de score saine doit classer son épitope **bas**. C'est le cas —
+le patch E472, qui contient 4 résidus de l'empreinte, sort dernier (67 % identité,
+4 divergences). Le masque de conservation mesure quelque chose.
+
+Un contrôle qui aurait montré l'empreinte fortement conservée aurait signalé un offset
+faux ou un alignement cassé, pas une bonne nouvelle.
+
+### Deux corrections apportées au scoring
+
+1. **Le seuil glycane ne portait que sur l'ancre.** `dist_glycan > GLYCAN_EXCLUSION`
+   filtrait l'ancre, alors que le patch était rapporté par le minimum sur ses *membres*.
+   Une ancre à 20 Å pouvait porter des membres à 6 Å. Le seuil porte désormais sur le
+   patch entier. **Effet : 7 patches sur 9 écartés** — E320 (6 Å), D323 (7 Å), E489 (5 Å),
+   E397 (10 Å), E495 (11 Å), E472 (11 Å), E400 (12 Å).
+2. **Déduplication sur le recouvrement des membres** (`MAX_PATCH_OVERLAP = 0.5`) et non
+   sur la distance entre ancres. À `PATCH_RADIUS = 11`, deux ancres séparées de 8 Å
+   partagent encore les deux tiers de leur patch : E320 et D323 partageaient 6 membres
+   sur 9 tout en étant comptés comme distincts.
+
+Clé de tri laissée volontairement inchangée à `(-frac_ident, -n)`. Colonnes `n_hydro` et
+`n_acidic` ajoutées pour mesurer la tension avant tout score composite.
+
+### Résultat : le funnel s'effondre à un seul site
+
+```
+9 ancres acides conservées et exposées
+  → 7 écartées par le seuil glycane appliqué au patch
+  → 2 survivantes (E431, D434)
+  → 1 site distinct après déduplication (elles partagent 5 membres sur 9)
+```
+
+Site retenu, **E431** : 9 résidus exposés, 100 % identité humain/souris, 0 divergence,
+glycane le plus proche à 16 Å, hors empreinte Fab.
+Patch : `E431 K430 G458 E400 R403 K455 S428 D434 T459`.
+Hotspots suggérés : `A431,A430,A458,A400`.
+
+### Le problème, et il n'est pas dans le code
+
+**Aucun des 8 sites candidats n'avait de contenu apolaire** (0 à 2 hydrophobes exposés).
+Le site survivant est à **0 hydrophobe**. Tous les sites ancrés sur un Asp/Glu conservé
+sont des surfaces polaires et chargées — le cas le plus défavorable au design de novo.
+
+La tension designabilité / ancrage acide n'est donc pas un arbitrage : il n'y a pas
+d'option apolaire dans cet ensemble. Et un seul site ne fait pas une campagne : pas de
+diversité d'épitope possible, donc rien à clusteriser à la sélection finale.
+
+**Décision à prendre avant toute dépense GPU** — la conjonction de contraintes est trop
+serrée. Trois relâchements possibles, aucun encore appliqué :
+
+- autoriser les ancres `similar` et non seulement `identical` (l'identité régionale est
+  de 87 %, le critère « identique » est peu discriminant et coûte des candidats) ;
+- recalibrer `GLYCAN_EXCLUSION = 12.0` Å, seuil jamais calibré et qui à lui seul écarte
+  7 patches sur 9 ;
+- découpler : choisir le site sur la designabilité, et traiter l'ancrage acide comme
+  départageur plutôt que comme filtre dur.
+
+Le funnel tel quel est publiable — c'est un résultat négatif documenté — mais il ne
+produit pas de lot soumissible.

@@ -7,4 +7,7 @@ dependencies = [
     # cbor2 6.x builds a Rust extension and ships no wheel for macOS x86_64, so a
     # bare `uv pip install modal` fails on this machine. 5.9.0 has a wheel.
     "cbor2==5.9.0",
+    # Analyse locale, CPU : egfr_epitope_map.py (alignement orthologue, SASA, parsing mmCIF).
+    "biopython>=1.83",
+    "numpy>=1.26",
 ]
