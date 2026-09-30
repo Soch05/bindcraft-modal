@@ -1,158 +1,306 @@
-# CLAUDE.md — BindCraft sur Modal : étape « test »
+# CLAUDE.md — Adaptyv × Anthropic, Challenge 1 : binder conditionnel anti-EGFR
 
-## Objectif unique de cette étape
+Fichier de contexte projet. À lire en entier avant toute action sur ce repo.
+Le règlement condensé est dans [challenge-01-egfr.md](challenge-01-egfr.md) — il fait foi,
+ce fichier-ci ne fait qu'en tirer les conséquences opérationnelles.
 
-Faire tourner la **démo PD-L1 de BindCraft de bout en bout sur Modal**, récupérer les
-fichiers de sortie en local, et savoir combien ça coûte et combien de temps ça prend.
+---
 
-Rien d'autre. Ce n'est pas l'étape où l'on conçoit des binders pour la compétition,
-pas l'étape où l'on ajuste les losses, pas l'étape où l'on optimise le débit.
-Le livrable est une commande qui marche et une facture connue.
+## 1. L'objectif, et pourquoi il n'est pas celui qu'on croit
 
-Si tu te surprends à proposer d'améliorer la qualité des designs, tu es hors périmètre :
-dis-le et reviens à l'objectif.
+Challenge 1, **Track 3**, participant solo, auto-financé. Trois objectifs, classés
+**dans cet ordre** par les organisateurs :
 
-## Contexte
+1. **Sélectivité pH** — lier à pH 6,5, pas à pH 7,4.
+2. **Cross-réactivité souris** — la même séquence doit reconnaître P00533 et Q01279.
+3. **Affinité** — sur l'ectodomaine humain.
 
-Préparation à la compétition de protein design Adaptyv Bio x Anthropic. BindCraft
-(Pacesa et al.) génère des binders *de novo* par rétropropagation à travers
-AlphaFold2-Multimer, puis redesign ProteinMPNN et scoring PyRosetta.
+**Conséquence structurante : l'affinité est le critère le moins bien classé, et c'est
+le seul que BindCraft optimise.** Une campagne BindCraft menée par défaut produit un
+bon résultat sur le critère n°3 et rien du tout sur les n°1 et n°2. Le règlement dit
+explicitement qu'un binder faible mais nettement pH-dépendant peut être jugé plus
+marquant qu'un binder fort non conditionnel. Tout arbitrage de temps se tranche dans
+cet ordre : pH, puis souris, puis affinité.
 
-Usage académique — la licence PyRosetta est couverte. Ne pas configurer ce projet
-pour un usage commercial.
+**Deuxième conséquence : la méthode est notée.** En Track 3, les soumissions sont mises
+en commun et un modèle sélectionne sur trois axes — qualité prédite, nouveauté du design,
+**nouveauté de la méthode** — avec ~375 places pour ~1500 designs criblés. Le dossier de
+méthodes n'est donc pas un livrable annexe destiné à une candidature : c'est le canal de
+sélection lui-même. Les deux objectifs du projet (soumettre, et produire un artefact
+public défendable) n'en font qu'un.
 
-## Contraintes machine — non négociables
+**Échéance dure : dimanche 5 octobre, 13h59 à Paris** (4 oct 23:59 AoE). Aujourd'hui
+30 septembre → **5 jours**. Ce chiffre prime sur toute considération d'élégance.
 
-- Machine locale : **MacBook Air 2018, Intel x86_64. Aucun GPU NVIDIA, aucun CUDA.**
-- BindCraft ne tournera **jamais** en local. Ne propose ni `install_bindcraft.sh`,
-  ni conda/mamba, ni `jax[cuda]`, ni PyRosetta sur cette machine. Toute tentative
-  est une perte de temps pure.
-- Le local sert à trois choses : écrire du Python, lancer `modal run`, inspecter
-  les résultats téléchargés.
-- Environnement local : venv Python 3.12 géré par `uv`. Seule dépendance nécessaire
-  au projet : `modal`.
+Tout est publié en open data sous ODC-BY, résultats négatifs compris. Chaque fichier du
+dépôt est écrit en supposant qu'un tiers le lira.
 
-## Architecture cible
+**Critère de succès minimal** : un CSV de soumission reproductible depuis un commit, avec
+pour chaque séquence sa trajectoire de génération, ses métriques, et la raison de sa
+sélection — y compris l'argument pH.
 
-Trois primitives Modal, et il faut comprendre pourquoi chacune est là :
+---
 
-| Primitive | Rôle | Pourquoi |
-|---|---|---|
-| `modal.Image` | Déclare l'environnement (CUDA, JAX, PyRosetta, BindCraft) | L'install de BindCraft est le vrai obstacle. L'Image la rend reproductible et cachée. |
-| `modal.Volume` | Poids AF2 (5,3 Go) + sorties | Les poids se téléchargent une fois, pas à chaque run. Les résultats survivent au conteneur. |
-| `--detach` | Le job continue après déconnexion | On ferme le laptop, le run continue. |
+## 2. Contraintes dures
 
-Les poids AF2 vont dans le **Volume**, jamais dans l'Image : un rebuild d'image ne doit
-pas coûter 5,3 Go de téléchargement.
+| Contrainte | Conséquence |
+|---|---|
+| **5 jours** | Privilégier systématiquement le chemin court qui produit une soumission. Un pipeline inachevé vaut zéro. |
+| Machine locale = MacBook Air 2018, **Intel x86_64, pas de GPU CUDA** | **Aucun modèle ne tourne en local.** Jamais proposer d'exécuter AlphaFold2, BindCraft, ProteinMPNN, Boltz ou PyRosetta ici. Le local sert à écrire du code, parser des CSV, aligner des séquences, tracer des figures. |
+| Python local | venv **3.12 via `uv`**. Ne jamais cibler 3.13. Le pin `cbor2==5.9.0` dans `pyproject.toml` est obligatoire : sans lui `uv pip install modal` tente de compiler une extension Rust et échoue sur cette machine. Ne pas l'enlever. |
+| Compute GPU | **Modal** uniquement. Colab est un anti-objectif : ~10× plus lent à hardware équivalent, sessions qui meurent. |
+| Budget | Le garde-fou réel n'est pas la durée annoncée mais **`--max-trajectories`** : `--number-of-final-designs` est un critère d'arrêt sur le *résultat*, pas sur l'effort. Sans plafond dur, un run où rien ne passe les filtres tourne jusqu'au timeout de 5 h. Tout run sans `--max-trajectories` est un bug de budget. |
+| Licence | PyRosetta en **usage académique** — le règlement rappelle que les outils sous licence commerciale supposent de la détenir. Ne pas configurer ce projet pour un usage commercial. |
 
-## Règles de travail
+---
 
-1. **Ne réinvente pas l'image.** Pars du `modal_bindcraft.py` du dépôt
-   `hgbrian/biomodals`, qui résout déjà le problème. Lis-le, comprends-le, adapte-le.
-   Écrire une image from scratch est un piège à trois jours.
-2. **Épingle toutes les versions.** Jamais de version flottante sur `jax`, `jaxlib`,
-   `cuda`, `numpy`. La majorité des échecs BindCraft viennent d'incompatibilités
-   JAX/CUDA. Une version flottante rend le bug non reproductible.
-3. **Build avant run.** Valide que l'image se construit et que
-   `jax.devices()` voit bien un GPU, dans une fonction triviale, *avant* de lancer
-   la moindre trajectoire. Un build raté à la minute 40 d'un run coûte le run entier.
-4. **Toujours `--detach`** sur les runs réels.
-5. **Ne modifie aucun JSON de settings par défaut** à ce stade. `default_filters.json`
-   et `default_4stage_multimer.json` restent intacts. Les seuils ont été calibrés
-   contre des résultats expérimentaux ; les toucher pour « faire passer des designs »
-   casse ce lien. Si un filtre bloque, c'est une information, pas un obstacle.
-6. **Le test tourne avec `--number-of-final-designs 1`.** On veut une preuve que le
-   pipeline boucle, pas un résultat scientifique.
-7. **Cible tronquée.** La mémoire GPU croît de façon quadratique avec le nombre de
-   résidus (représentation de paires d'AF2), et la rétropropagation stocke ses
-   activations. Ordre de grandeur : ~550 résidus sur 32 Go, ~950 sur 80 Go.
-   Le `PDL1.pdb` d'exemple est déjà tronqué — ne le rallonge pas.
-8. **Pas de tâtonnement sur les versions.** Devant une erreur : lis le message,
-   identifie le composant, vérifie sa version, corrige une chose. Changer trois
-   pins d'un coup rend le diagnostic impossible.
-9. **Demande avant de dépenser.** Tout run dont tu estimes le coût au-dessus de
-   quelques dollars, ou la durée au-dessus d'une heure : annonce l'estimation et
-   attends l'accord.
+## 3. Stack, et ce qu'elle ne couvre pas
 
-## Critères d'acceptation
+- **Génération** : [BindCraft](https://github.com/martinpacesa/BindCraft), épinglé au commit
+  `c0a48d5`. Hallucination par rétropropagation à travers AF2-multimer, redesign
+  ProteinMPNN, scoring PyRosetta. Baseline retenue, pas à rediscuter sans raison forte.
+- **Exécution** : Modal. Volume `bindcraft` monté sur `/outputs`. GPU par défaut `L40S`,
+  surchargeable par la variable d'environnement `GPU`.
+  **Les poids AF2 sont dans l'Image, pas dans le Volume** — décision délibérée, documentée
+  dans [NOTES.md](NOTES.md) : la couche `aria2c` est placée avant PyRosetta et avant les
+  pins `jax`/`numpy`, donc ajuster les pins qu'on touche le plus souvent ne réinvalide pas
+  les 5,3 Go. Ne pas « corriger » ça.
+- **Re-scoring orthogonal** : un prédicteur **indépendant d'AF2** (Boltz-2 / Chai-1), pour
+  éviter que le filtre valide ce que le générateur a lui-même optimisé. Les organisateurs
+  pointent https://github.com/anthropics/uplifting-biomolecular-modeling comme jeu de
+  modèles open-source optimisés pour l'inférence — point de départ par défaut.
+- **Analyse locale** : biopython + numpy, dont dépend `egfr_epitope_map.py`. Déclarés dans
+  `pyproject.toml` mais **pas encore installés dans le venv**. pandas/matplotlib seront à
+  ajouter quand un script les importera vraiment, pas avant.
 
-L'étape test est passée quand **tous** ces points sont vrais :
+**Le trou dans la stack, à énoncer clairement : rien là-dedans ne connaît le pH.**
+AF2 comme ProteinMPNN ignorent les états de protonation ; ils ne voient qu'une identité
+de résidu. Aucune boucle d'optimisation ne poussera donc vers un binder conditionnel.
+La sélectivité pH doit être **imposée par construction** (choix de l'épitope, biais de
+composition à l'interface) puis **vérifiée à part**, jamais espérée du générateur.
 
-- [ ] `modal run` sur une fonction triviale confirme `jax.devices()` -> GPU CUDA visible
-- [ ] L'image se construit sans erreur et le build est caché (2e build quasi instantané)
-- [ ] Les poids AF2 sont dans le Volume et ne se retéléchargent pas au run suivant
-- [ ] Un run détaché sur `PDL1.pdb` se termine sans exception
-- [ ] `modal volume get` ramène les sorties en local
-- [ ] Les fichiers attendus existent : `Trajectory/`, `MPNN/`, `Accepted/`,
-      `final_design_stats.csv`, `failure_csv.csv`
-- [ ] On sait lire `failure_csv.csv` : quel filtre rejette, et combien de fois
-- [ ] Durée et coût du run sont notés dans `NOTES.md`
+---
 
-Zéro design accepté n'invalide **pas** le test. Sur cible difficile il faut souvent
-quelques centaines à quelques milliers de trajectoires. Ce qu'on valide ici est la
-plomberie, pas le rendement.
+## 4. État réel du dépôt
 
-## Anti-objectifs
-
-- Installer quoi que ce soit de BindCraft en local
-- Toucher aux seuils de filtres ou aux poids de loss
-- Paralléliser, optimiser le débit, gérer plusieurs cibles
-- Passer à BindCraft2 ou à une autre cible avant que la démo PD-L1 ne tourne
-- Utiliser Colab en secours : le notebook tourne environ 10x plus lentement qu'une
-  install locale à hardware équivalent, et les sessions meurent
-
-## Structure du dépôt
+Ce qui existe aujourd'hui — pas une cible, l'existant :
 
 ```
 .
-├── CLAUDE.md              # ce fichier
-├── NOTES.md               # journal : ce qui a marché, versions, durées, coûts
-├── modal_bindcraft.py     # point d'entrée Modal
-├── inputs/
-│   └── PDL1.pdb           # cible de démo, tronquée
-└── out/                   # résultats rapatriés du Volume (gitignored)
+├── CLAUDE.md
+├── challenge-01-egfr.md      # règlement condensé, source + date de consultation
+├── NOTES.md                  # journal de bord : versions, décisions, runs, coûts
+├── modal_bindcraft.py        # entrypoint Modal (racine, pas src/)
+├── egfr_epitope_map.py       # carte d'épitope locale, CPU — jamais exécuté à ce jour
+├── pyproject.toml
+├── inputs/PDL1.pdb           # cible de la démo de test, plus utilisée
+└── out/                      # résultats rapatriés (gitignored)
 ```
 
-`NOTES.md` est à tenir à jour à chaque run : commande exacte, GPU, durée, coût,
-nombre de trajectoires, nombre d'acceptés. C'est ce qui servira de baseline quand
-on passera à la vraie cible.
+`NOTES.md` est le journal et doit être tenu à jour à chaque run : commande exacte, GPU,
+durée, coût, nombre de trajectoires, nombre d'acceptés, décision prise. C'est la matière
+première du dossier de méthodes, donc du Track 3.
 
-## Commandes de référence
+Toute arborescence plus riche (`src/`, `docs/`, `configs/`) est une cible, pas un fait :
+ne pas y écrire de chemin sans créer le fichier dans le même geste.
+
+---
+
+## 5. Commandes réelles
 
 ```bash
-# cible de démo
-curl -LO https://raw.githubusercontent.com/martinpacesa/BindCraft/refs/heads/main/example/PDL1.pdb
+# Setup local
+uv venv --python 3.12 && source .venv/bin/activate
+uv pip install -r pyproject.toml
 
-# run de test, détaché
+# Carte d'épitope (local, CPU, gratuit) — à lancer avant toute dépense GPU
+python egfr_epitope_map.py
+
+# Run court, une seule fonction, compatible --detach
 GPU=A100 uv run --with modal modal run --detach modal_bindcraft.py \
-  --input-pdb inputs/PDL1.pdb --number-of-final-designs 1
+  --input-pdb inputs/<cible>.pdb --target-hotspot-residues "A123,A124" \
+  --lengths 50,130 --number-of-final-designs 1 --max-trajectories 20
 
-# rapatrier les sorties
+# Run réel : N shards en parallèle puis agrégation.
+# ⚠️ --detach est piégeux ici : Modal ne garde en vie que la dernière fonction
+# déclenchée, et le mode parallèle en déclenche N+1. Lancer attaché.
+GPU=A100 uv run --with modal modal run modal_bindcraft.py::parallel \
+  --input-pdb inputs/<cible>.pdb --n-shards 4 --trajectories-per-shard 15
+
+# Rapatrier les sorties
 modal volume get bindcraft <run_name> ./out/
 ```
 
-## Sécurité
+Dimensionner `trajectories-per-shard` à 15–20 : chaque shard paie ~3 min de compilation
+JIT, et en dessous de ~10 trajectoires la variance entre shards fait exploser le temps
+mural (déséquilibre mesuré à 56 % sur un test à 3–4 trajectoires/shard).
 
-- Le token Modal ne va ni dans le dépôt, ni dans un fichier suivi par git.
-  `modal token set` uniquement.
-- `out/` et tout fichier de résultat sont dans `.gitignore`.
+---
 
-## Sorties à comprendre avant de passer à la suite
+## 6. Cible
 
-Ces trois fichiers sont ce qui compte, et il faut savoir les lire avant l'étape suivante :
+Établi depuis [challenge-01-egfr.md](challenge-01-egfr.md) :
 
-- `final_design_stats.csv` — une ligne par design accepté, toutes les métriques.
-  Les colonnes sont préfixées `1_`, `2_` … `Average_` : ce sont les cinq modèles AF2.
-  Seuls les modèles 1, 2 et la moyenne sont filtrés par défaut.
-- `failure_csv.csv` — combien de designs chaque filtre a rejetés. **Premier réflexe
-  de diagnostic**, avant de toucher à quoi que ce soit.
-- `Trajectory/` — les PDB intermédiaires. Utile pour vérifier visuellement qu'on
-  génère des protéines et pas du spaghetti.
+| | |
+|---|---|
+| Humain | UniProt **P00533**, ectodomaine, résidus **25–645** |
+| Souris | UniProt **Q01279** |
+| Structure | PDB **6ARU**, chaîne **A** |
+| Épitope recommandé | domaine III (site cétuximab / panitumumab) |
+| Longueur | **10–250 aa**, chaîne unique |
+| Designs | **20 max** (Track 3) |
+| CSV | **ordonné par classement**, meilleur en première ligne ; colonnes minimales `name`, `sequence`, `molecule_class` |
 
-## Ton comportement attendu
+**Numéros de résidus : jamais de mémoire.** La numérotation PDB de 6ARU n'est pas celle
+d'UniProt (peptide signal), et `egfr_epitope_map.py` déduit l'offset par alignement au
+lieu de le supposer. Tout hotspot cité doit venir de la sortie de ce script ou d'une
+lecture directe du fichier.
 
-- Direct et technique. Pas de préambule, pas de reformulation de la demande.
-- Si une approche est mauvaise, dis-le avant de l'implémenter, pas après.
-- Ne prétends jamais qu'un run a réussi sans avoir lu la sortie réelle.
-- Devant une incertitude sur une version ou une API Modal : vérifie la doc,
-  ne devine pas.
+**Piège sur l'épitope recommandé** : le cétuximab ne reconnaît pas l'EGFR murin. L'épitope
+le plus documenté du domaine III est donc précisément celui qui met en danger l'objectif
+n°2. Le patch doit être choisi sur la conservation humain/souris mesurée, pas sur la
+littérature cétuximab.
+
+**Contraintes d'expression** (Adaptyv exprime en système acellulaire, mesure par BLI/SPR) —
+à traiter comme des filtres, pas comme des préférences esthétiques :
+- pas de cystéines libres (BindCraft les omet par défaut — garder ce réglage) ;
+- pas de dépendance à une glycosylation ni à un repliement assisté par chaperon ;
+- surface peu hydrophobe, pas de longues extrémités désordonnées ;
+- **un design qui ne s'exprime pas produit zéro information.** L'expressibilité prime sur
+  l'affinité prédite.
+- La cible réelle est glycosylée, le modèle AF2 ne l'est pas : exclure du patch les sites
+  de N-glycosylation **des deux espèces**.
+
+---
+
+## 7. Pipeline
+
+Ordre imposé, aligné sur le classement des objectifs :
+
+**épitope → générer → filtrer AF2 → switch pH → re-scorer orthogonalement → diversifier → soumettre**
+
+L'étape épitope est en premier parce qu'elle est locale, gratuite, et qu'elle décide seule
+de l'objectif n°2 : la cross-réactivité souris se joue au choix du patch, pas au filtrage.
+
+### Le switch pH
+
+Mécanisme retenu, **à traiter comme une hypothèse de travail explicite et à documenter
+comme telle** : l'histidine est le seul acide aminé canonique dont le pKa (~6,0–6,5 en
+solution libre, décalable par l'environnement local) tombe entre les deux pH mesurés.
+Asp/Glu sont à ~4, Lys/Arg au-dessus de 10. À pH 6,5 une fraction notable des His est
+protonée donc chargée positivement ; à pH 7,4 elles sont majoritairement neutres.
+
+Polarité à viser : **gain de liaison à pH 6,5**, en appariant une His du binder à un
+Asp/Glu conservé et exposé de l'EGFR — le pont salin n'existe que sous forme protonée.
+C'est ce que construit le masque « ancrage acide » d'`egfr_epitope_map.py`. La polarité
+inverse (His enfouie près d'un Arg/Lys, répulsion à pH bas) donne une perte à 6,5, soit
+l'opposé de ce qu'on veut.
+
+Honnêteté sur la difficulté, à ne pas enjoliver dans le write-up : une His isolée donne
+rarement un basculement franc. Les binders pH-dépendants publiés en alignent plusieurs, et
+l'effet obtenu est typiquement un décalage de KD d'un facteur quelques-uns, pas un
+tout-ou-rien. Un lot dont la dépendance au pH est modeste mais mesurée et argumentée vaut
+mieux qu'une affirmation de switch binaire non étayée.
+
+### Métriques loggées pour **chaque** design, y compris rejeté
+
+`design_id, seed, trajectory, sequence, length, i_pTM, i_pAE, pLDDT_binder, dG, dSASA,
+shape_complementarity, n_hotspot_contacts, unsat_hbonds, surface_hydrophobicity,
+n_interface_his, his_acidic_pairs, epitope_conservation_frac, min_dist_glycan,
+filters_passed, reject_reason, run_id, commit`
+
+Les quatre champs du milieu sont l'ajout qui rend le lot défendable sur les objectifs 1 et
+2 ; sans eux la soumission ne peut rien argumenter d'autre que de l'affinité.
+
+### Seuils
+
+Valeurs de départ, **à vérifier contre `default_filters.json` du commit `c0a48d5`** avant
+d'en faire des seuils — elles ne sont pas encore lues dans un fichier de ce dépôt :
+`i_pTM ≥ 0.50`, `i_pAE ≤ 0.35`, `pLDDT_binder ≥ 0.80`, `dG < 0`,
+`shape_complementarity ≥ 0.55`, `unsat_hbonds ≤ 3`, `surface_hydrophobicity < 0.35`.
+
+⚠️ **Piège d'échelle** : BindCraft normalise pLDDT et pAE sur [0,1] dans ses fichiers de
+filtres, alors que la littérature les cite en 0–100 et en Å. Vérifier l'échelle avant toute
+comparaison ou tout seuil copié d'un papier.
+
+### Sélection finale
+
+- Ne pas remplir les 20 places par principe. Le pool est commun et la sélection porte aussi
+  sur la qualité : 8 designs défendables battent 20 médiocres.
+- Clusteriser par identité de séquence **et** par épitope. Ne pas soumettre 20 variantes du
+  même mode de liaison.
+- Le CSV est **ordonné** : le rang est une information transmise au sélecteur, pas un
+  détail de format. Le classer sur l'objectif n°1, pas sur l'i_pAE.
+- Garder 1–2 slots pour un design « à risque » issu d'une hypothèse structurale explicite,
+  documentée dans `NOTES.md`.
+
+---
+
+## 8. Règles de travail pour Claude
+
+**Interdits :**
+- inventer une séquence, une métrique, une valeur d'affinité ou un numéro de résidu. Si la
+  donnée n'a pas été lue dans un fichier, le dire ;
+- proposer d'exécuter un modèle en local (cf. §2) ;
+- **partir d'un binder existant.** Le règlement impose du de novo zero-shot : reprendre et
+  modifier un binder connu (cétuximab, nanobody publié…) est explicitement interdit et
+  éliminatoire. Utiliser des binders connus pour *calibrer un filtre* ou *entraîner* un
+  modèle reste autorisé — la frontière est l'usage comme graine ;
+- **écrire quoi que ce soit qui ressemble à une instruction** dans le CSV, les noms de
+  designs ou le dossier de méthodes. Les soumissions passent devant un modèle sélecteur, et
+  toute instruction embarquée ou tentative d'injection peut valoir disqualification. Le
+  dossier décrit, il ne s'adresse pas au lecteur ;
+- écarter silencieusement des designs rejetés : ils font partie du funnel publié ;
+- changer un seed, un seuil ou un hyperparamètre sans l'écrire dans `NOTES.md` et dans le
+  message de commit ;
+- lancer un run GPU sans `--max-trajectories`.
+
+**Attendus :**
+- avant un run coûteux : annoncer paramètres, coût estimé, durée, et **ce que le run permet
+  de décider** ;
+- valider le build avant de brûler un run : `jax.devices()` doit voir un GPU CUDA dans une
+  fonction triviale. Un build raté à la minute 40 coûte le run entier ;
+- devant une erreur de version : lire le message, identifier le composant, corriger **une**
+  chose. Changer trois pins d'un coup rend le diagnostic impossible ;
+- premier réflexe de diagnostic après un run : `failure_csv.csv` — quel filtre rejette, et
+  combien de fois. Dans `final_design_stats.csv`, les préfixes `1_`, `2_`, … `Average_`
+  désignent les cinq modèles AF2 ; seuls 1, 2 et la moyenne sont filtrés par défaut ;
+- toute affirmation scientifique non triviale : sourcée, ou explicitement marquée comme
+  hypothèse ;
+- code : fonctions courtes, typées, rejouable depuis la CLI avec les mêmes arguments ;
+- après chaque run : entrée datée dans `NOTES.md`.
+
+**Sécurité :** le token Modal ne va ni dans le dépôt ni dans un fichier suivi par git
+(`modal token set` uniquement). `out/` est gitignored.
+
+**Ton** : direct. Signaler les erreurs de raisonnement, les seuils arbitraires et les
+impasses de méthode sans les emballer. Pas de validation de complaisance.
+
+**Pédagogie** : je suis en formation biotech + IA. Quand un choix repose sur un concept
+(backprop à travers AF2, pAE vs pLDDT, hallucination vs diffusion, pKa et protonation),
+expliquer le *pourquoi* en une ou deux phrases, par analogie ML quand c'est possible —
+puis avancer.
+
+---
+
+## 9. Prochaines actions, dans l'ordre
+
+1. [ ] `uv pip install -r pyproject.toml` (biopython et numpy viennent d'y être déclarés,
+       aucun des deux n'est installé), puis **lancer `egfr_epitope_map.py`** — local,
+       gratuit, et bloquant pour tout le reste : sans patch choisi, aucun run GPU n'a de
+       sens.
+2. [ ] Choisir le patch sur la sortie du script : conservation humain/souris, ancres
+       acides exposées, distance aux glycanes. Écrire le choix et son motif dans `NOTES.md`.
+3. [ ] Préparer le PDB cible (6ARU chaîne A, éventuellement tronquée au domaine III — la
+       mémoire GPU croît quadratiquement avec le nombre de résidus : ordre de grandeur
+       ~550 résidus sur 32 Go, ~950 sur 80 Go).
+4. [ ] Run BindCraft court avec plafond dur → coût/design et temps/design réels sur cette
+       cible, puis arbitrage du volume total.
+5. [ ] Décider comment enrichir l'interface en His : biais de composition au redesign MPNN,
+       ou scan post-hoc + re-scoring. **C'est l'étape différenciante et celle sans outil sur
+       étagère** — donc aussi celle qui pèse sur l'axe « nouveauté de la méthode ».
+6. [ ] Câbler le prédicteur orthogonal.
+7. [ ] Rédiger le dossier de méthodes **en parallèle des runs**, pas à la fin.
+8. [ ] Soumission visée : **samedi 4 octobre**. La clôture réelle est le dimanche 5 à
+       13h59 Paris — viser le samedi *matin* laisse ~24 h de marge, le samedi soir n'en
+       laisse que ~15. La marge se compte contre dimanche 13h59, pas contre minuit.

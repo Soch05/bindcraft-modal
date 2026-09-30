@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 .modal.toml
 .DS_Store
+
+# Caches réseau du script d'épitope : reproductibles depuis UniProt / RCSB
+data/*.cif
+data/*.json
