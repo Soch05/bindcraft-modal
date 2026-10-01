@@ -894,3 +894,232 @@ pontée est un résidu structurellement contraint, pas un point d'accroche à so
 
 Le balayage ne montre aucune coupure naturelle (continuum 7 → 26 sites de 0,1 à 0,9).
 La liste se lit à la main. Aucun seuil écrit dans le code.
+
+### Lever le confond taille / troncature (01/10) — hypothèse réfutée
+
+Les centres restent dans le domaine III, les membres sont désormais repris sur **toute la
+chaîne A** (327 résidus exposés au lieu de 98). Colonnes `*_full` en parallèle des colonnes
+masquées, plus `n_truncated`.
+
+**Hypothèse testée** : les cinq patches 317-333 auraient une SASA absolue amputée par le
+masque, leur densité restant intacte. **Faux. `n_truncated = 0` pour les dix patches du
+top-10 absolu ET pour les dix du top-10 densité.** Aucun des vingt n'est tronqué. La
+faible SASA absolue des patches 317-333 est réelle, pas un artefact de bord.
+
+Mais le mécanisme existe, sur d'autres patches : **15 sur 93 sont tronqués**, troncature
+médiane 2 résidus, et quatre le sont lourdement — ils étaient sous-évalués :
+
+| centre | n → n_full | apolaire masquée → full | écart |
+|---|---|---|---|
+| R310 | 6 → 11 | 229 → 454 Å² | **+98 %** |
+| K311 | 9 → 12 | 349 → 536 Å² | +54 % |
+| C502 | 10 → 17 | 399 → **609 Å²** | +53 % |
+| N337 | 8 → 11 | 356 → 497 Å² | +40 % |
+
+Les centres concernés sont ceux des vrais bords : 310, 311, 336, 337 d'un côté, 497, 501,
+502, 503 de l'autre, plus quelques-uns dont la sphère de 11 Å franchit la borne (372, 375,
+397, 398, 428, 483, 484). C502 à 609 Å² full serait dans les trois premiers ; masqué il
+n'apparaissait pas. Le classement absolu doit donc se lire sur les colonnes `_full`.
+
+### Ce qui explique vraiment l'écart absolu / densité
+
+Voisinage à 11 Å, résidus totaux du domaine III contre résidus exposés :
+
+| centre | exposés | total | frac. exposée | Å²/membre |
+|---|---|---|---|---|
+| C482 | 15 | 30 | 0,50 | 42,6 |
+| Q480 | 16 | 24 | 0,67 | 37,2 |
+| R470 | 16 | 27 | 0,59 | 33,6 |
+| H359 | 6 | **11** | 0,55 | 80,9 |
+| S356 | 7 | **11** | 0,64 | 80,4 |
+| D323 | 8 | **12** | 0,67 | 53,7 |
+| K333 | 6 | **13** | 0,46 | 48,7 |
+| L325 | 7 | 22 | **0,32** | 60,0 |
+| T330 | 8 | 21 | **0,38** | 57,2 |
+
+La fraction exposée est comparable dans les deux groupes (0,46-0,67). Ce qui diffère, c'est
+le **nombre total de résidus dans la sphère** : 11-13 pour H359/S356/D323/K333 contre 24-30
+pour C482/Q480/R470. À rayon fixe, un voisinage peu peuplé signifie que la surface
+**s'incurve en s'éloignant** — protubérance convexe.
+
+**Conséquence à marquer comme hypothèse, non mesurée ici** : une protubérance convexe est
+*défavorable* au design de novo, pas favorable. Un binder maximise la surface enfouie, ce
+qui demande une cible plutôt concave ou plate ; une crête étroite en offre peu. Si cela se
+confirme, la métrique de densité sélectionne **contre** la designabilité, et mon
+commentaire de la lecture [B] — « la densité est mieux alignée » — était prématuré.
+
+L325 et T330 sont un cas distinct : voisinage peuplé (22, 21) mais peu exposé (0,32, 0,38),
+donc plutôt une crevasse ou une arête qu'une protubérance.
+
+### Plancher 400 Å² puis tri sur apolar_frac
+
+`FLOOR_APOLAR = 400.0`, adossé à la calibration cétuximab — seul seuil du fichier appuyé
+sur une mesure externe. Appliqué sur `sasa_apolar_full`. **40 patches passent, 53 tombent.**
+K333 (292 Å²) tombe comme prévu.
+
+| rg | centre | n_full | apol_full | apfr_full | ident | acidC | glyc | dFab |
+|---|---|---|---|---|---|---|---|---|
+| 1 | H359 | 6 | 486 | 0,73 | 0,83 | 0 | 5,8 | 8,3 |
+| 2 | T358 | 8 | 627 | 0,69 | 0,88 | 1 | 5,8 | 6,0 |
+| 3 | S356 | 7 | 563 | 0,68 | 0,71 | 0 | 7,8 | 0,0 |
+| 4 | **L325** | 7 | 420 | 0,62 | **1,00** | 1 | 7,3 | 0,0 |
+| 5 | P361 | 9 | 523 | 0,61 | 0,78 | 1 | 5,8 | 0,0 |
+| 6 | G479 | 10 | 410 | 0,61 | 0,50 | 0 | 11,4 | 4,3 |
+| 7 | V481 | 13 | 557 | 0,60 | 0,61 | 1 | 9,9 | 0,0 |
+| 8 | **D323** | 8 | 430 | 0,58 | **1,00** | **2** | 7,3 | 6,0 |
+| 9 | V500 | 11 | 491 | 0,57 | 0,82 | 1 | 5,0 | 9,2 |
+| 10 | C482 | 15 | 639 | 0,57 | 0,60 | 2 | 5,0 | 5,7 |
+| 11 | Q480 | 16 | 596 | 0,57 | 0,62 | 1 | 6,0 | 0,0 |
+| 12 | S468 | 10 | 402 | 0,57 | 0,50 | 0 | 7,6 | 0,0 |
+
+Les plus proches du plancher par en dessous : K455 (392), K454 (379), P362 (374), T406
+(374), K336 (367), N444 (364). G317 passe le plancher à 441 Å² mais sort du top-12 sur
+`apolar_frac`.
+
+**Seuls L325 et D323 cumulent** plancher franchi, `apolar_frac` ≥ 0,58, **100 % d'identité
+humain/souris** et au moins une ancre acide conservée — D323 en ayant deux.
+
+### Colonne `face` supprimée, remplacée par `dist_fab`
+
+`face` reposait sur un axe **inféré** : centroïde du domaine III vers centroïde du
+domaine I, censé repérer la face de liaison du ligand puisque le site de l'EGF est ménagé
+entre ces deux domaines. **Elle ne repérait rien.** 6ARU est en conformation repliée : les
+domaines I et III sont écartés et le site de l'EGF est démonté, donc l'axe ne suit pas la
+face ligand. Le contrôle l'a prouvé — les douze patches recouvrant l'empreinte du cétuximab
+sortaient tous à `face = 0,00`, face externe, alors que cet épitope chevauche le site de
+l'EGF.
+
+Remplacement par une **mesure** : `dist_fab`, distance de l'atome d'ancrage du résidu au
+plus proche résidu de l'empreinte du Fab, 0 Å pour un résidu de l'empreinte lui-même. Le
+cétuximab compétitionne l'EGF, son empreinte marque donc la surface ligand-compétitive.
+Proxy mesuré plutôt qu'axe inféré, et dérivé d'un calcul déjà présent dans le script.
+
+Distribution sur le domaine III : min 0,0, médiane **11,4**, max 28,9 Å. Agrégé par patch
+en `min_dist_fab` et `mean_dist_fab`. `face_axis()` et `other_l_domain()` supprimés.
+
+### Calibration du voisinage, et reclassement sur les colonnes `_full` (01/10)
+
+**Correction de cadrage.** L'entrée précédente concluait « hypothèse réfutée » sur
+`n_truncated = 0`. Mauvaise lecture : l'hypothèse était **mal ciblée**, pas fausse. La
+troncature ne pénalise pas les patches 317-333 — elle en **cache d'autres entièrement**,
+parce que le classement était calculé sur les colonnes masquées. Reclassé sur
+`sasa_apolar_full`, quatre patches invisibles entrent dans le top-20.
+
+### Top-20 reclassé sur `sasa_apolar_full`
+
+| rang | centre | n | n_tot | f_exp | trc | apol_full | ap/res | apfr | ident | acidC | glyc | dFab |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | C482 | 15 | 31 | 0,48 | 0 | 639 | 42,6 | 0,57 | 0,60 | 2 | 5,0 | 5,7 |
+| 2 | T358 | 8 | 18 | 0,44 | 0 | 627 | 78,3 | 0,69 | 0,88 | 1 | 5,8 | 6,0 |
+| **3** | **C502** | 17 | 29 | 0,59 | **7** | **609** | 35,8 | 0,43 | 0,71 | 3 | **0,0** | 15,8 |
+| 4 | Q480 | 16 | 24 | 0,67 | 0 | 596 | 37,2 | 0,57 | 0,62 | 1 | 6,0 | 0,0 |
+| 5 | S356 | 7 | 11 | 0,64 | 0 | 563 | 80,4 | 0,68 | 0,71 | 0 | 7,8 | 0,0 |
+| 6 | V481 | 13 | 21 | 0,62 | 0 | 557 | 42,8 | 0,60 | 0,61 | 1 | 9,9 | 0,0 |
+| 7 | R470 | 16 | 27 | 0,59 | 0 | 537 | 33,6 | 0,46 | 0,56 | 1 | 0,0 | 0,0 |
+| **8** | **K311** | 12 | 22 | 0,55 | **3** | **536** | 44,7 | 0,50 | 0,83 | 0 | **0,0** | 15,6 |
+| 9 | T450 | 13 | 29 | 0,45 | 0 | 529 | 40,7 | 0,55 | 0,77 | 2 | 11,4 | 0,0 |
+| 10 | P361 | 9 | 16 | 0,56 | 0 | 523 | 58,1 | 0,61 | 0,78 | 1 | 5,8 | 0,0 |
+| **13** | **N337** | 11 | 20 | 0,55 | **3** | 497 | 45,2 | 0,52 | 0,82 | 0 | **0,0** | 17,8 |
+| **18** | **S501** | 11 | 20 | 0,55 | **1** | 458 | 41,7 | 0,52 | 0,82 | 1 | **0,0** | 12,2 |
+
+**Les quatre patches révélés sont tous à `min_glyc = 0,0`** — par construction, un de leurs
+membres *est* un séquon N-linked (PDB 328, 337, 504 selon le cas). Et leur `dFab` est de
+12 à 18 Å, donc loin de la surface ligand-compétitive. Ils n'étaient pas cachés par hasard :
+ce sont les bords du domaine, là où la chaîne passe aux domaines II et IV, et ces bords sont
+glycosylés. C502 à 609 Å² n'est pas un gain net.
+
+### Calibration : la population du voisinage ne discrimine rien
+
+Pas de mesure de concavité — pas le temps de la calibrer. À la place, le seul calibrateur
+disponible : l'empreinte du cétuximab. Résidus totaux du domaine III dans les 11 Å.
+
+| ensemble | n | min | p25 | médiane | p75 | max |
+|---|---|---|---|---|---|---|
+| tous les patches | 93 | 9 | 16 | **19** | 22 | 30 |
+| patches d'empreinte | 38 | **11** | 16 | **20** | 24 | 29 |
+
+**Les deux distributions sont confondues.** L'empreinte couvre toute la gamme, de 11 à 29.
+Trois de ses patches tombent dans la bande « suspecte » ≤ 13 résidus : **S356 (11 total,
+563 Å² apolaires), N473 (11), A477 (13)**. S356 est donc à la fois un voisinage parmi les
+plus clairsemés du lot *et* une partie d'une surface qui lie réellement une protéine.
+
+**Verdict, selon la règle posée avant la mesure : la courbure locale est écartée comme
+critère.** Elle ne sépare pas une surface liable d'une surface non liable. Mon avertissement
+de l'entrée précédente — « la densité sélectionne peut-être contre la designabilité » — est
+donc levé sans mesure supplémentaire. Enrichissement résiduel trop faible pour agir :
+13 patches sur 93 ont un voisinage ≤ 13, dont 3 d'empreinte (23 %) contre 41 % d'empreinte
+dans le lot entier, sur n = 13.
+
+### Classement plancher 400 Å² puis `apolar_frac_full`, top-20
+
+Tête : H359 (0,73), T358 (0,69), S356 (0,68), **L325 (0,62 / 100 % ident / 1 acidC)**,
+P361 (0,61), G479 (0,61), V481 (0,60), **D323 (0,58 / 100 % / 2 acidC)**, V500 (0,57),
+C482 (0,57), Q480 (0,57), S468 (0,57), **G317 (0,57 / 100 % / 2 acidC)**, T330 (0,56 /
+0,88 / 2 acidC), N452 (0,56), P494, E489, T450, T478, T464.
+40 patches franchissent le plancher, 53 tombent.
+
+**Les quatre patches à 100 % d'identité humain/souris avec ancre acide conservée** —
+L325, D323, G317 et T330 à 88 % — franchissent tous le plancher et sortent entre les rangs
+4 et 14 sur la fraction apolaire. Ce sont les seuls candidats qui servent les objectifs 1 et
+2 sans compromis, et aucun n'est tronqué, aucun n'est sur un séquon (glyc 5,8-7,3 Å), tous
+sont à 0-8 Å de l'empreinte du cétuximab.
+
+### Diversité d'épitope : 3 sites disjoints, et un seul est propre (01/10)
+
+Objectif : répartir le compute sur 3-4 sites spatialement distincts pour pouvoir
+basculer un quota si un site ne produit rien. Disjonction mesurée en **fraction de
+membres partagés**, jamais en distance entre centres — à `PATCH_RADIUS = 11`, deux centres
+à 15 Å partagent encore la moitié de leurs membres.
+
+Site de référence **désigné par les données** et non par des bornes : parmi les 40 patches
+au-dessus du plancher, les composantes connexes des patches à identité parfaite, puis la
+plus grande, étendue à ses satellites (`GROUP_LINK = 0.5`, valeur **posée**). Résultat :
+7 patches, 20 membres — **D323, E320, G317, H359, L325, T330, T358**. C'est bien le site
+317-330, obtenu sans le nommer.
+
+Clé de tri des sites alignée sur l'**ordre des objectifs du règlement** : ancre acide
+conservée (pH) > identité humain/souris (souris) > surface apolaire (affinité). Ordonner par
+identité d'abord — ce que j'avais fait en première passe — démote T450 et N449 qui portent
+des ancres acides. Erreur corrigée.
+
+Seuil de disjonction non fixé, balayé : **τ = 0,00 et 0,10 donnent les mêmes 3 sites**,
+τ = 0,25 en ajoute un quatrième. Recouvrements croisés tous à 0,00.
+
+| | site 1 | site 2 | site 3 |
+|---|---|---|---|
+| représentant | **C502** | **K375** | **N449** |
+| apol_full | 609 | 445 | 477 |
+| apolar_frac | **0,43** | 0,47 | 0,50 |
+| identité h/s | 0,71 | **1,00** | 0,77 |
+| ancres acides cons. | **3** | 2 | 1 |
+| min_glyc | **0,0** | 5,1 | **11,0** |
+| dFab | 15,8 | **17,6** | **0,0** |
+| patches du groupe | 6 | 3 | **8** |
+| union | 27 membres | 20 | **30** |
+| hors domaine III | **7** (507-530, dom. IV) | **6** (289-308, dom. II) | **0** |
+| séquon dans le groupe | **C502, S501, R503** | **N337, R310** | **aucun** |
+
+### Verdict franc
+
+**Il y a bien 3 sites disjoints, mais un seul des trois alternatifs est propre.**
+
+- **Site 3 (N449)** est la seule vraie alternative : 8 patches — le groupe le plus robuste
+  du lot —, 30 membres **tous dans le domaine III**, **aucun séquon**, glycane à 11 Å, et
+  `dFab = 0` donc sur la surface ligand-compétitive. Faiblesses réelles : **une seule**
+  ancre acide conservée, identité 0,77, fraction apolaire 0,50. Il sert l'objectif 3 et
+  à moitié l'objectif 1.
+- **Site 2 (K375)** est le meilleur sur les objectifs 1+2 après la référence — identité
+  **1,00** et 2 ancres acides — mais deux de ses trois patches portent un séquon, son
+  glycane le plus proche est à 5,1 Å, il est à 17,6 Å de l'empreinte du cétuximab, et un
+  tiers de son union est dans le **domaine II**. C'est un site à risque assumé, pas un
+  site de repli.
+- **Site 1 (C502) est à écarter.** Trois de ses six patches portent un séquon, un quart
+  de son union est dans le **domaine IV**, et sa fraction apolaire est la plus basse du
+  lot au-dessus du plancher (0,43). Sa SASA absolue de 609 Å² — la plus haute — est
+  précisément l'artefact que les colonnes `_full` ont révélé : ce qui était caché était
+  glycosylé.
+
+**Conclusion à assumer : le domaine III de l'EGFR offre un bon site, un site exploitable,
+et un site à risque.** Pas quatre sites équivalents. Répartition proposée pour jeudi :
+la référence 317-330 en principal, N449 en secondaire, K375 sur le slot « à risque » que
+le §7 de CLAUDE.md demande de garder. C502 non alloué.

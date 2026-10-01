@@ -6,7 +6,8 @@ Enumere les patches de surface du domaine III de l'EGFR humain et les decrit
 sur les axes qui comptent pour le challenge : conservation humain/souris
 (objectif cross-reactivite), contenu apolaire expose (designabilite de novo),
 presence d'ancres acides conservees (partenaire du switch His/pH), proximite
-des N-glycanes, et orientation de la face.
+des N-glycanes, et distance a l'empreinte du cetuximab, qui competitionne l'EGF
+et sert donc de proxy mesure de la surface ligand-competitive.
 
 Ce script NE SELECTIONNE PAS de site. Il sort des colonnes et des
 distributions ; les seuils de retenue sont decides ensuite, a la lecture.
@@ -91,10 +92,22 @@ CONTACT_CUTOFF = 4.5  # contact lourd Fab <-> cible
 # regime d'enumeration qui n'existe plus.
 MIN_PATCH_MEMBERS = 6
 
+# Plancher de SASA apolaire absolue. Adosse a la calibration sur l'empreinte du
+# Fab cetuximab : les patches qui la recouvrent sortent a ~390-400 A2 apolaires en
+# mediane, et le cetuximab se lie reellement. C'est le seul seuil de ce fichier
+# appuye sur une mesure externe plutot que sur un choix.
+FLOOR_APOLAR = 400.0
+
 # Deduplication : AUCUN seuil n'est fixe. Le script sort la distribution des
 # recouvrements et un balayage seuil -> nombre de sites. Le choix se fait a la
 # lecture, pas ici.
 DEDUP_SWEEP = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+
+# Regroupement des patches en sites. Deux patches qui partagent plus de GROUP_LINK
+# de leurs membres decrivent le meme site : valeur POSEE, non calibree. Le seuil de
+# disjonction entre sites n'est pas fixe - balaye sur DISJOINT_SWEEP.
+GROUP_LINK = 0.5
+DISJOINT_SWEEP = (0.0, 0.1, 0.25)
 
 # Proxy de designabilite conserve a titre de comparaison avec la SASA apolaire,
 # qui le remplace comme cle de tri. Un comptage de residus rend invisibles les
@@ -282,17 +295,6 @@ def resolve_domain_iii(foot_uni: set[int], offset: int) -> tuple[int, int]:
         f"{g3d_pick[0] - offset}-{g3d_pick[1] - offset} PDB"
     )
     return g3d_pick
-
-
-def other_l_domain(foot_uni: set[int]) -> tuple[int, int] | None:
-    """Le second segment Receptor L-domain : le domaine I, reference de la face.
-
-    Designe par exclusion de celui que l'empreinte selectionne, pas par un indice.
-    """
-    segs = gene3d_superfamily_domains()
-    pick = pick_domain(segs, foot_uni)
-    others = [s for s in segs if s != pick]
-    return others[0] if others else None
 
 
 # --------------------------------------------------------------------------- #
@@ -550,34 +552,17 @@ def split_sasa(res) -> tuple[float, float]:
     return float(apolar), float(polar)
 
 
-def face_axis(residues, offset: int, dom3: tuple[int, int], dom1: tuple[int, int] | None):
-    """Axe oriente du centroide du domaine III vers celui du domaine I.
+def build_table(residues, offset, mapping, dom3, foot, glyc_sites, ss_cys):
+    """Table par residu. Remplace la colonne `face` par `dist_fab`.
 
-    Le site de liaison de l'EGF est menage entre les domaines I et III : la face
-    du domaine III tournee vers le domaine I est la face ligand.
+    `face` etait un axe infere - centroide domaine III vers centroide domaine I -
+    cense reperer la face de liaison du ligand. Il ne la repere pas : 6ARU est en
+    conformation repliee, les domaines I et III sont ecartes et le site de l'EGF
+    est demonte. Le controle l'a montre : tous les patches de l'empreinte du Fab
+    sortaient en face externe alors que cet epitope chevauche le site de l'EGF.
+    Remplacement par une mesure : la distance a l'empreinte du cetuximab, qui
+    competitionne l'EGF et marque donc la surface ligand-competitive.
     """
-    if dom1 is None:
-        return None, None
-    c3 = [
-        anchor_atom(r).coord
-        for r in residues
-        if dom3[0] <= r.id[1] + offset <= dom3[1]
-    ]
-    c1 = [
-        anchor_atom(r).coord
-        for r in residues
-        if dom1[0] <= r.id[1] + offset <= dom1[1]
-    ]
-    if not c3 or not c1:
-        return None, None
-    centre3 = np.mean(c3, axis=0)
-    axis = np.mean(c1, axis=0) - centre3
-    return centre3, axis / float(np.linalg.norm(axis))
-
-
-def build_table(
-    residues, offset, mapping, dom3, foot, glyc_sites, ss_cys, centre3, axis
-):
     glyc_coords = [
         anchor_atom(res).coord
         for res in residues
@@ -588,6 +573,12 @@ def build_table(
             "Aucun site de N-glycosylation ne tombe sur un residu observe. La "
             "colonne de distance glycane serait inoperante : arret plutot qu'un "
             "repli silencieux sur une distance infinie."
+        )
+    fab_coords = [anchor_atom(res).coord for res in residues if res.id[1] in foot]
+    if not fab_coords:
+        raise SystemExit(
+            "Aucun residu de l'empreinte du Fab ne tombe sur un residu observe : "
+            "la colonne dist_fab serait inoperante."
         )
 
     rows = []
@@ -600,10 +591,7 @@ def build_table(
         rel_sasa = total / MAX_ASA[aa_h]
         coord = anchor_atom(res).coord
         d_glyc = min(float(np.linalg.norm(coord - c)) for c in glyc_coords)
-        if axis is None:
-            face = "?"
-        else:
-            face = "ligand" if float(np.dot(coord - centre3, axis)) > 0 else "externe"
+        d_fab = min(float(np.linalg.norm(coord - c)) for c in fab_coords)
         rows.append(
             {
                 "pdb_resnum": res.id[1],
@@ -618,8 +606,9 @@ def build_table(
                 "rel_sasa": round(float(rel_sasa), 3),
                 "exposed": bool(rel_sasa >= MIN_REL_SASA),
                 "in_domain3": dom3[0] <= uni <= dom3[1],
-                "face": face,
                 "fab_contact": res.id[1] in foot,
+                # 0 pour un residu de l'empreinte lui-meme
+                "dist_fab": round(float(d_fab), 1),
                 "acidic": aa_h in "DE",
                 "hydrophobic": aa_h in HYDROPHOBIC,
                 "cys_bridged": bool(aa_h == "C" and uni in ss_cys),
@@ -632,67 +621,107 @@ def build_table(
 # --------------------------------------------------------------------------- #
 # 5. Enumeration des patches
 # --------------------------------------------------------------------------- #
+def patch_stats(members: list[dict]) -> dict:
+    """Statistiques agregees d'un ensemble de membres. Aucun masque applique ici."""
+    n = len(members)
+    apolar = sum(m["sasa_apolar"] for m in members)
+    polar = sum(m["sasa_polar"] for m in members)
+    return {
+        "n": n,
+        "sasa_apolar": round(apolar, 1),
+        # la SASA apolaire absolue correle a la taille du patch : la densite par
+        # membre est sortie en parallele pour pouvoir separer les deux effets
+        "sasa_apolar_per_res": round(apolar / n, 1),
+        "sasa_polar": round(polar, 1),
+        "apolar_frac": round(apolar / (apolar + polar), 3) if apolar + polar else 0.0,
+        "frac_ident": round(
+            sum(1 for m in members if m["status"] == "identical") / n, 3
+        ),
+        "n_diff": sum(1 for m in members if m["status"] in ("different", "gap")),
+        "n_acidic": sum(1 for m in members if m["acidic"]),
+        "n_acidic_cons": sum(
+            1 for m in members if m["acidic"] and m["status"] == "identical"
+        ),
+        "n_hydro": sum(1 for m in members if m["hydrophobic"]),
+        # un soufre de cysteine pontee compte comme apolaire mais n'offre pas ce
+        # qu'offre une leucine exposee : sortie a part pour pouvoir la defalquer
+        "n_cys_ponte": sum(1 for m in members if m["cys_bridged"]),
+        "sasa_apolar_cys_ponte": round(
+            sum(m["sasa_apolar"] for m in members if m["cys_bridged"]), 1
+        ),
+        "n_fab": sum(1 for m in members if m["fab_contact"]),
+        "min_glyc": round(min(m["dist_glycan"] for m in members), 1),
+        # proxy de surface ligand-competitive : distance a l'empreinte du Fab
+        # cetuximab, qui competitionne l'EGF. Mesure, pas axe infere.
+        "min_dist_fab": round(min(m["dist_fab"] for m in members), 1),
+        "mean_dist_fab": round(
+            float(np.mean([m["dist_fab"] for m in members])), 1
+        ),
+    }
+
+
 def enumerate_patches(rows: list[dict], residues) -> list[dict]:
     """Un patch par residu expose du domaine III, pris comme centre.
 
-    L'ancrage acide n'est plus la source des centres : il devient une colonne
-    comptee parmi les membres. Centrer sur Asp/Glu faisait du contenu apolaire
-    nul une tautologie de l'echantillonnage, pas une mesure de la surface.
+    Deux jeux de membres sont calcules pour chaque centre :
+      - masque  : membres exposes ET dans le domaine III (colonnes nues)
+      - complet : membres exposes de toute la chaine A  (colonnes `_full`)
+    Un centre proche d'une borne de domaine voit son patch tronque par le masque,
+    ce qui ampute sa SASA absolue sans toucher sa densite. `n_truncated` chiffre
+    la troncature ; la surface de la proteine, elle, ne s'arrete pas au domaine.
+
+    L'ancrage acide n'est pas la source des centres : il est une colonne comptee
+    parmi les membres. Centrer sur Asp/Glu faisait du contenu apolaire nul une
+    tautologie de l'echantillonnage, pas une mesure de la surface.
     """
     coords = {r.id[1]: anchor_atom(r).coord for r in residues}
-    surface = [r for r in rows if r["in_domain3"] and r["exposed"]]
-    print(f"  {len(surface)} residus exposes dans le domaine III -> autant de centres")
+    allrows = [r for r in rows if r["pdb_resnum"] in coords]
+    centres = [r for r in allrows if r["in_domain3"] and r["exposed"]]
+    print(
+        f"  {len(centres)} residus exposes dans le domaine III -> autant de centres"
+    )
+    print(
+        f"  {sum(1 for r in allrows if r['exposed'])} residus exposes sur la chaine "
+        "entiere -> reservoir de membres"
+    )
 
-    pos = np.array([coords[r["pdb_resnum"]] for r in surface])
+    pos = np.array([coords[r["pdb_resnum"]] for r in allrows])
+    index = {r["pdb_resnum"]: i for i, r in enumerate(allrows)}
     patches = []
-    for i, centre in enumerate(surface):
-        d = np.linalg.norm(pos - pos[i], axis=1)
-        members = [surface[j] for j in np.argsort(d) if d[j] <= PATCH_RADIUS]
-        n = len(members)
-        apolar = sum(m["sasa_apolar"] for m in members)
-        polar = sum(m["sasa_polar"] for m in members)
-        min_glyc = min(m["dist_glycan"] for m in members)
-        patches.append(
-            {
-                "centre": f"{centre['aa_human']}{centre['pdb_resnum']}",
-                "centre_num": centre["pdb_resnum"],
-                "centre_uniprot": centre["uniprot_pos"],
-                "n": n,
-                "sasa_apolar": round(apolar, 1),
-                # la SASA apolaire absolue correle a la taille du patch : la
-                # densite par membre est sortie en parallele pour le verifier
-                "sasa_apolar_per_res": round(apolar / n, 1),
-                "sasa_polar": round(polar, 1),
-                "apolar_frac": round(apolar / (apolar + polar), 3) if apolar + polar else 0.0,
-                "frac_ident": round(
-                    sum(1 for m in members if m["status"] == "identical") / n, 3
-                ),
-                "n_diff": sum(1 for m in members if m["status"] in ("different", "gap")),
-                "n_acidic": sum(1 for m in members if m["acidic"]),
-                "n_acidic_cons": sum(
-                    1 for m in members if m["acidic"] and m["status"] == "identical"
-                ),
-                "n_hydro": sum(1 for m in members if m["hydrophobic"]),
-                # un soufre de cysteine pontee compte comme apolaire mais n'offre
-                # pas ce qu'offre une leucine exposee : SASA apolaire attribuable
-                # aux cysteines pontees, sortie a part pour pouvoir la defalquer
-                "n_cys_ponte": sum(1 for m in members if m["cys_bridged"]),
-                "sasa_apolar_cys_ponte": round(
-                    sum(m["sasa_apolar"] for m in members if m["cys_bridged"]), 1
-                ),
-                "n_fab": sum(1 for m in members if m["fab_contact"]),
-                "frac_ligand_face": round(
-                    sum(1 for m in members if m["face"] == "ligand") / n, 3
-                ),
-                "min_glyc": round(min_glyc, 1),
-                "member_set": frozenset(m["pdb_resnum"] for m in members),
-                "members": [
-                    f"{m['aa_human']}{m['pdb_resnum']}"
-                    + ("" if m["status"] == "identical" else f"({m['aa_mouse']})")
-                    for m in members
-                ],
-            }
-        )
+    for centre in centres:
+        d = np.linalg.norm(pos - pos[index[centre["pdb_resnum"]]], axis=1)
+        # tous les residus de la sphere, exposes ou non : le denominateur du
+        # taux d'exposition, qui renseigne la courbure locale de la surface
+        near = [allrows[j] for j in np.argsort(d) if d[j] <= PATCH_RADIUS]
+        full = [m for m in near if m["exposed"]]
+        masked = [m for m in full if m["in_domain3"]]
+        n_tot = sum(1 for m in near if m["in_domain3"])
+
+        rec = {
+            "centre": f"{centre['aa_human']}{centre['pdb_resnum']}",
+            "centre_num": centre["pdb_resnum"],
+            "centre_uniprot": centre["uniprot_pos"],
+        }
+        rec.update(patch_stats(masked))
+        rec["n_total"] = n_tot
+        rec["frac_exposed"] = round(rec["n"] / n_tot, 3) if n_tot else 0.0
+        rec.update({f"{k}_full": v for k, v in patch_stats(full).items()})
+        rec["n_total_full"] = len(near)
+        rec["frac_exposed_full"] = round(rec["n_full"] / len(near), 3) if near else 0.0
+        rec["n_truncated"] = rec["n_full"] - rec["n"]
+        rec["member_set"] = frozenset(m["pdb_resnum"] for m in masked)
+        rec["member_set_full"] = frozenset(m["pdb_resnum"] for m in full)
+        rec["members"] = [
+            f"{m['aa_human']}{m['pdb_resnum']}"
+            + ("" if m["status"] == "identical" else f"({m['aa_mouse']})")
+            for m in masked
+        ]
+        rec["members_full"] = [
+            f"{m['aa_human']}{m['pdb_resnum']}"
+            + ("*" if not m["in_domain3"] else "")
+            for m in full
+        ]
+        patches.append(rec)
     return patches
 
 
@@ -810,31 +839,40 @@ def write_csv(path: Path, rows: list[dict], drop: tuple[str, ...] = ()) -> Path:
     return path
 
 
-RANK_HDR = (
-    f"{'rang':>5} {'centre':<8}{'n':>3}{'apolA2':>8}{'ap/res':>8}{'polA2':>7}"
-    f"{'apfr':>6}{'ident':>7}{'acid':>5}{'acidC':>6}{'hyd':>4}{'cysSS':>6}"
-    f"{'glyc':>6}{'face':>6}{'fab':>4}"
-)
-RULE = "-" * 90
-
-
-def fmt_patch(p: dict, rank: int) -> str:
+def rank_hdr() -> str:
     return (
-        f"{rank:>5} {p['centre']:<8}{p['n']:>3}{p['sasa_apolar']:>8.0f}"
-        f"{p['sasa_apolar_per_res']:>8.1f}{p['sasa_polar']:>7.0f}"
-        f"{p['apolar_frac']:>6.2f}{p['frac_ident']:>7.2f}{p['n_acidic']:>5}"
-        f"{p['n_acidic_cons']:>6}{p['n_hydro']:>4}{p['n_cys_ponte']:>6}"
-        f"{p['min_glyc']:>6.1f}{p['frac_ligand_face']:>6.2f}{p['n_fab']:>4}"
+        f"{'rang':>5} {'centre':<8}{'n':>3}{'ntot':>5}{'fexp':>6}{'trc':>4}"
+        f"{'apolA2':>8}{'ap/res':>8}{'apfr':>6}{'ident':>7}{'acidC':>6}{'hyd':>4}"
+        f"{'cysSS':>6}{'glyc':>6}{'dFab':>6}{'fab':>4}"
     )
 
 
-def show_ranking(patches: list[dict], key: str, title: str, n: int = 10) -> list[dict]:
+RANK_HDR = rank_hdr()
+RULE = "-" * 94
+
+
+def fmt_patch(p: dict, rank: int, sfx: str = "") -> str:
+    """Une ligne de patch. sfx = "" pour les colonnes masquees, "_full" sinon."""
+    return (
+        f"{rank:>5} {p['centre']:<8}{p['n' + sfx]:>3}{p['n_total' + sfx]:>5}"
+        f"{p['frac_exposed' + sfx]:>6.2f}{p['n_truncated']:>4}"
+        f"{p['sasa_apolar' + sfx]:>8.0f}{p['sasa_apolar_per_res' + sfx]:>8.1f}"
+        f"{p['apolar_frac' + sfx]:>6.2f}{p['frac_ident' + sfx]:>7.2f}"
+        f"{p['n_acidic_cons' + sfx]:>6}{p['n_hydro' + sfx]:>4}"
+        f"{p['n_cys_ponte' + sfx]:>6}{p['min_glyc' + sfx]:>6.1f}"
+        f"{p['min_dist_fab' + sfx]:>6.1f}{p['n_fab' + sfx]:>4}"
+    )
+
+
+def show_ranking(
+    patches: list[dict], key: str, title: str, n: int = 10, sfx: str = ""
+) -> list[dict]:
     ordered = sorted(patches, key=lambda p: -p[key])
     print(f"\n{title}")
     print(RULE)
     print(RANK_HDR)
     for i, p in enumerate(ordered[:n], 1):
-        print(fmt_patch(p, i))
+        print(fmt_patch(p, i, sfx))
     return ordered
 
 
@@ -860,12 +898,12 @@ def footprint_report(ranked: list[dict], foot: set[int]) -> None:
         f"  {len(hit)} patches sur {len(ranked)} contiennent au moins un des "
         f"{len(foot)} residus de l'empreinte"
     )
-    apol_all = [p["sasa_apolar"] for p in ranked]
-    apol_hit = [p["sasa_apolar"] for p in hit]
-    print(
-        f"  SASA apolaire : mediane tous patches {np.median(apol_all):.0f} A2  |  "
-        f"mediane patches d'empreinte {np.median(apol_hit):.0f} A2"
-    )
+    for tag, key in (("masque", "sasa_apolar"), ("full ", "sasa_apolar_full")):
+        print(
+            f"  SASA apolaire ({tag}) : mediane tous patches "
+            f"{np.median([p[key] for p in ranked]):.0f} A2  |  "
+            f"mediane patches d'empreinte {np.median([p[key] for p in hit]):.0f} A2"
+        )
     best = max(hit, key=lambda p: p["n_fab"])
     print(
         f"  recouvrement maximal : {best['centre']} avec {best['n_fab']} residus "
@@ -873,26 +911,26 @@ def footprint_report(ranked: list[dict], foot: set[int]) -> None:
     )
     print(RANK_HDR)
     for p in sorted(hit, key=lambda p: -p["n_fab"])[:12]:
-        print(fmt_patch(p, rank[p["centre"]]))
+        print(fmt_patch(p, rank[p["centre"]], "_full"))
 
 
 def density_report(ranked_abs: list[dict], patches: list[dict]) -> None:
     """B. SASA apolaire par membre : le tri absolu classe-t-il la taille ?"""
     print("\n[B] DENSITE APOLAIRE PAR MEMBRE — effet de taille")
     print(RULE)
-    n = [p["n"] for p in patches]
+    n = [p["n_full"] for p in patches]
     print(
-        f"  correlation n / SASA apolaire absolue   : {pearson(n, [p['sasa_apolar'] for p in patches]):+.3f}"
+        f"  correlation n / SASA apolaire absolue   : {pearson(n, [p['sasa_apolar_full'] for p in patches]):+.3f}"
     )
     print(
-        f"  correlation n / SASA apolaire par membre: {pearson(n, [p['sasa_apolar_per_res'] for p in patches]):+.3f}"
+        f"  correlation n / SASA apolaire par membre: {pearson(n, [p['sasa_apolar_per_res_full'] for p in patches]):+.3f}"
     )
     ranked_den = sorted(patches, key=lambda p: -p["sasa_apolar_per_res"])
     top_abs = {p["centre"] for p in ranked_abs[:10]}
     top_den = {p["centre"] for p in ranked_den[:10]}
     print(
-        f"  taille mediane du top-10 absolu : {np.median([p['n'] for p in ranked_abs[:10]]):.1f}"
-        f"  |  du top-10 par membre : {np.median([p['n'] for p in ranked_den[:10]]):.1f}"
+        f"  taille mediane du top-10 absolu : {np.median([p['n_full'] for p in ranked_abs[:10]]):.1f}"
+        f"  |  du top-10 par membre : {np.median([p['n_full'] for p in ranked_den[:10]]):.1f}"
     )
     print(f"  intersection des deux top-10 : {len(top_abs & top_den)}/10")
     if top_abs & top_den:
@@ -902,7 +940,250 @@ def density_report(ranked_abs: list[dict], patches: list[dict]) -> None:
     rank_abs = {p["centre"]: i for i, p in enumerate(ranked_abs, 1)}
     print(RANK_HDR)
     for i, p in enumerate(ranked_den[:10], 1):
-        print(fmt_patch(p, i) + f"   (rang absolu {rank_abs[p['centre']]})")
+        print(fmt_patch(p, i, "_full") + f"   (rang absolu {rank_abs[p['centre']]})")
+
+
+def truncation_report(
+    ranked_abs: list[dict], ranked_den: list[dict], n: int = 10
+) -> None:
+    """1. Le masque domaine III ampute-t-il les patches de bord ?
+
+    Les centres restent dans le domaine III, les membres sont repris sur toute la
+    chaine A. Un centre proche d'une borne voit sa SASA absolue amputee sans que
+    sa densite bouge : c'est le confond a lever avant de choisir une cle de tri.
+    """
+    print("\n[1] TRONCATURE AU BORD DU DOMAINE — membres sans masque")
+    print(RULE)
+    hdr = (
+        f"  {'centre':<8}{'n':>3}{'n_full':>7}{'trc':>5}{'apolA2':>8}{'apol_full':>11}"
+        f"{'delta':>8}{'ap/res':>8}{'ap/res_full':>13}"
+    )
+    for label, ranked in (("top-10 SASA absolue", ranked_abs), ("top-10 densite", ranked_den)):
+        print(f"\n  {label}")
+        print(hdr)
+        for p in ranked[:n]:
+            delta = p["sasa_apolar_full"] - p["sasa_apolar"]
+            pct = delta / p["sasa_apolar"] if p["sasa_apolar"] else 0.0
+            print(
+                f"  {p['centre']:<8}{p['n']:>3}{p['n_full']:>7}{p['n_truncated']:>5}"
+                f"{p['sasa_apolar']:>8.0f}{p['sasa_apolar_full']:>11.0f}"
+                f"{pct:>8.0%}{p['sasa_apolar_per_res']:>8.1f}"
+                f"{p['sasa_apolar_per_res_full']:>13.1f}"
+            )
+    allp = {p["centre"]: p for p in ranked_abs}
+    trunc = [p for p in allp.values() if p["n_truncated"] > 0]
+    print(
+        f"\n  sur les {len(allp)} patches : {len(trunc)} tronques par le masque, "
+        f"troncature mediane {np.median([p['n_truncated'] for p in trunc]):.0f} residus"
+        if trunc
+        else f"\n  aucun des {len(allp)} patches n'est tronque par le masque"
+    )
+
+
+def floor_report(patches: list[dict], floor: float, n: int = 12) -> None:
+    """2. Plancher de SASA apolaire absolue, puis classement sur apolar_frac.
+
+    Le plancher vient de la calibration cetuximab, pas d'une preference : il fixe
+    le niveau de surface apolaire qu'un binder proteique connu occupe reellement.
+    Au-dessus de ce plancher, c'est la purete apolaire qui departage.
+    """
+    print(f"\n[2] PLANCHER {floor:.0f} A2 APOLAIRES (full), PUIS TRI SUR apolar_frac")
+    print(RULE)
+    passing = [p for p in patches if p["sasa_apolar_full"] >= floor]
+    rejected = [p for p in patches if p["sasa_apolar_full"] < floor]
+    print(
+        f"  {len(passing)} patches au-dessus du plancher, {len(rejected)} en dessous"
+    )
+    ordered = sorted(passing, key=lambda p: -p["apolar_frac_full"])
+    print(
+        f"  {'rang':>5} {'centre':<8}{'n_full':>7}{'apol_full':>11}{'apfr_full':>11}"
+        f"{'ident':>7}{'acidC':>7}{'glyc':>6}{'dFab':>6}{'cysSS':>7}"
+    )
+    for i, p in enumerate(ordered[:n], 1):
+        print(
+            f"  {i:>5} {p['centre']:<8}{p['n_full']:>7}{p['sasa_apolar_full']:>11.0f}"
+            f"{p['apolar_frac_full']:>11.2f}{p['frac_ident_full']:>7.2f}"
+            f"{p['n_acidic_cons_full']:>7}{p['min_glyc_full']:>6.1f}"
+            f"{p['min_dist_fab_full']:>6.1f}{p['n_cys_ponte_full']:>7}"
+        )
+    if rejected:
+        worst = sorted(rejected, key=lambda p: -p["sasa_apolar_full"])[:6]
+        print(
+            "  ecartes par le plancher, les plus proches : "
+            + ", ".join(f"{p['centre']} ({p['sasa_apolar_full']:.0f})" for p in worst)
+        )
+
+
+def _ov(a: frozenset, b: frozenset) -> float:
+    """Fraction des membres de a qui sont aussi dans b."""
+    return len(a & b) / len(a) if a else 0.0
+
+
+def reference_site(floor_passers: list[dict]) -> tuple[set[int], list[str]]:
+    """Site de reference : le groupe le plus riche en patches a identite parfaite.
+
+    Designe par les donnees, pas par des bornes : objectif 2 oblige, le site qui
+    concentre le plus de patches a 100 % d'identite humain/souris est la reference
+    contre laquelle on cherche des sites disjoints. Composantes connexes a
+    recouvrement > 0 parmi les seuls patches parfaits, puis la plus grande.
+    """
+    perfect = [p for p in floor_passers if p["frac_ident_full"] >= 1.0]
+    if not perfect:
+        return set(), []
+    comps: list[list[dict]] = []
+    for p in perfect:
+        hit = [c for c in comps if any(p["member_set_full"] & q["member_set_full"] for q in c)]
+        if hit:
+            hit[0].append(p)
+            for extra in hit[1:]:
+                hit[0].extend(extra)
+                comps.remove(extra)
+        else:
+            comps.append([p])
+    best = max(comps, key=len)
+    ref = set().union(*[p["member_set_full"] for p in best])
+    # etendu aux satellites : les patches du lot qui partagent l'essentiel du site
+    sat = [
+        p for p in floor_passers
+        if p not in best and _ov(p["member_set_full"], frozenset(ref)) >= GROUP_LINK
+    ]
+    ref |= set().union(*[p["member_set_full"] for p in sat]) if sat else set()
+    names = sorted(p["centre"] for p in best + sat)
+    return ref, names
+
+
+def site_report(patches: list[dict], floor: float, dom3_pdb: tuple[int, int]) -> None:
+    """Sites spatialement distincts du site de reference, pour repartir le compute.
+
+    Disjonction mesuree en fraction de membres partages, jamais en distance entre
+    centres : a PATCH_RADIUS = 11, deux centres a 15 A partagent encore la moitie
+    de leurs membres. Cle de tri alignee sur l'ordre des objectifs du reglement -
+    ancre acide conservee (pH), puis identite humain/souris, puis surface apolaire.
+    """
+    print("\n[SITES] GROUPES DISJOINTS — repartition du compute")
+    print(RULE)
+    fl = [p for p in patches if p["sasa_apolar_full"] >= floor]
+    ref, ref_names = reference_site(fl)
+    if not ref:
+        print("  aucun patch a identite parfaite : pas de site de reference")
+        return
+    print(f"  {len(fl)} patches au-dessus du plancher {floor:.0f} A2")
+    print(
+        f"  site de reference ({len(ref_names)} patches, {len(ref)} membres) : "
+        f"{', '.join(ref_names)}"
+    )
+    key = lambda p: (
+        -p["n_acidic_cons_full"], -p["frac_ident_full"], -p["sasa_apolar_full"]
+    )
+    print("\n  balayage du seuil de disjonction :")
+    for tau in DISJOINT_SWEEP:
+        picked: list[dict] = []
+        for p in sorted(fl, key=key):
+            if _ov(p["member_set_full"], frozenset(ref)) > tau:
+                continue
+            if any(
+                _ov(p["member_set_full"], q["member_set_full"]) > tau
+                or _ov(q["member_set_full"], p["member_set_full"]) > tau
+                for q in picked
+            ):
+                continue
+            picked.append(p)
+        print(
+            f"    tau={tau:<5.2f} {len(picked)} sites : "
+            f"{', '.join(p['centre'] for p in picked[:6])}"
+        )
+
+    tau = DISJOINT_SWEEP[1]
+    picked = []
+    for p in sorted(fl, key=key):
+        if _ov(p["member_set_full"], frozenset(ref)) > tau:
+            continue
+        if any(
+            _ov(p["member_set_full"], q["member_set_full"]) > tau
+            or _ov(q["member_set_full"], p["member_set_full"]) > tau
+            for q in picked
+        ):
+            continue
+        picked.append(p)
+
+    print(f"\n  detail a tau={tau:.2f} :")
+    for rank, p in enumerate(picked[:4], 1):
+        grp = [p] + [
+            q for q in fl
+            if q is not p and _ov(q["member_set_full"], p["member_set_full"]) >= GROUP_LINK
+        ]
+        union = set().union(*[q["member_set_full"] for q in grp])
+        outside = sorted(r for r in union if not dom3_pdb[0] <= r <= dom3_pdb[1])
+        sequon = [q["centre"] for q in grp if q["min_glyc_full"] == 0.0]
+        print(
+            f"\n  SITE {rank} — {p['centre']}  apol={p['sasa_apolar_full']:.0f} A2  "
+            f"apfr={p['apolar_frac_full']:.2f}  ident={p['frac_ident_full']:.2f}  "
+            f"acidC={p['n_acidic_cons_full']}  glyc={p['min_glyc_full']:.1f} A  "
+            f"dFab={p['min_dist_fab_full']:.1f} A"
+        )
+        print(
+            f"    membres partages avec le site de reference : "
+            f"{_ov(p['member_set_full'], frozenset(ref)):.2f}"
+        )
+        print(f"    groupe ({len(grp)} patches) : {', '.join(sorted(q['centre'] for q in grp))}")
+        print(f"    union {len(union)} membres, {len(outside)} hors domaine III"
+              + (f" : {outside}" if outside else ""))
+        if sequon:
+            print(f"    !! SEQUON N-LINKED parmi les membres de : {', '.join(sequon)}")
+        else:
+            print("    aucun sequon dans le groupe")
+    print("\n  recouvrements croises des sites retenus :")
+    for i, a in enumerate(picked[:4]):
+        for b in picked[:4][i + 1:]:
+            print(
+                f"    {a['centre']:<7}/ {b['centre']:<7}: "
+                f"{_ov(a['member_set_full'], b['member_set_full']):.2f}"
+            )
+
+
+def neighbourhood_report(patches: list[dict], foot: set[int]) -> None:
+    """Le voisinage peuple est-il le regime d'une surface reellement liable ?
+
+    Pas de mesure de concavite : on se sert du seul calibrateur disponible,
+    l'empreinte du cetuximab. Si elle se cantonne aux voisinages peuples, les
+    patches a 11-13 residus sont suspects. Si elle couvre les deux regimes, la
+    courbure locale n'est pas discriminante et on avance sans elle.
+    """
+    print("\n[CALIBRATION] POPULATION DU VOISINAGE A 11 A — empreinte vs general")
+    print(RULE)
+    allp = [p["n_total"] for p in patches]
+    hit = [p for p in patches if p["n_fab"] > 0]
+    hitn = [p["n_total"] for p in hit]
+    for tag, arr in (("tous les patches", allp), ("patches d'empreinte", hitn)):
+        a = np.array(arr)
+        print(
+            f"  {tag:<22} n={len(a):>3}  min {a.min():>3}  p25 {np.percentile(a, 25):>4.0f}"
+            f"  median {np.percentile(a, 50):>4.0f}  p75 {np.percentile(a, 75):>4.0f}"
+            f"  max {a.max():>3}"
+        )
+    sparse = sorted(p["centre"] for p in hit if p["n_total"] <= 13)
+    print(
+        f"  patches d'empreinte a voisinage <= 13 residus : {len(sparse)}/{len(hit)}"
+        + (f" ({', '.join(sparse)})" if sparse else "")
+    )
+    print(f"  {'centre':<8}{'n_tot':>7}{'n_exp':>7}{'fexp':>7}{'n_fab':>7}{'apol_full':>11}")
+    for p in sorted(hit, key=lambda p: p["n_total"]):
+        print(
+            f"  {p['centre']:<8}{p['n_total']:>7}{p['n_full']:>7}{p['frac_exposed']:>7.2f}"
+            f"{p['n_fab']:>7}{p['sasa_apolar_full']:>11.0f}"
+        )
+    if sparse:
+        print(
+            "\n  -> l'empreinte couvre les deux regimes. La population du voisinage ne\n"
+            "     discrimine pas une surface liable d'une surface non liable : la\n"
+            "     courbure locale est ecartee comme critere, sans mesure supplementaire."
+        )
+    else:
+        print(
+            "\n  -> l'empreinte se cantonne aux voisinages peuples. Les patches a 11-13\n"
+            "     residus sortent du regime d'une surface dont on sait qu'elle lie une\n"
+            "     proteine : a traiter comme suspects."
+        )
 
 
 def cysteine_report(ranked: list[dict], n: int = 5) -> None:
@@ -916,15 +1197,15 @@ def cysteine_report(ranked: list[dict], n: int = 5) -> None:
         f"{'part':>7}{'apol. corrigee':>16}{'rang corrige':>14}"
     )
     corrected = sorted(
-        ranked, key=lambda p: -(p["sasa_apolar"] - p["sasa_apolar_cys_ponte"])
+        ranked, key=lambda p: -(p["sasa_apolar_full"] - p["sasa_apolar_cys_ponte_full"])
     )
     rank_corr = {p["centre"]: i for i, p in enumerate(corrected, 1)}
     for p in ranked[:n]:
-        net = p["sasa_apolar"] - p["sasa_apolar_cys_ponte"]
-        part = p["sasa_apolar_cys_ponte"] / p["sasa_apolar"] if p["sasa_apolar"] else 0.0
+        net = p["sasa_apolar_full"] - p["sasa_apolar_cys_ponte_full"]
+        part = p["sasa_apolar_cys_ponte_full"] / p["sasa_apolar_full"] if p["sasa_apolar_full"] else 0.0
         print(
-            f"  {p['centre']:<8}{p['n']:>3}{p['n_cys_ponte']:>7}{p['sasa_apolar']:>9.0f}"
-            f"{p['sasa_apolar_cys_ponte']:>12.0f}{part:>7.1%}{net:>16.0f}"
+            f"  {p['centre']:<8}{p['n_full']:>3}{p['n_cys_ponte_full']:>7}{p['sasa_apolar_full']:>9.0f}"
+            f"{p['sasa_apolar_cys_ponte_full']:>12.0f}{part:>7.1%}{net:>16.0f}"
             f"{rank_corr[p['centre']]:>14}"
         )
 
@@ -955,12 +1236,6 @@ def main() -> None:
     foot_uni = {n + offset for n in foot}
     dom3_uni = resolve_domain_iii(foot_uni, offset)
     dom3_pdb = (dom3_uni[0] - offset, dom3_uni[1] - offset)
-    dom1_uni = other_l_domain(foot_uni)
-    if dom1_uni:
-        print(
-            f"  domaine I (reference de face) : {dom1_uni[0]}-{dom1_uni[1]} UniProt = "
-            f"{dom1_uni[0] - offset}-{dom1_uni[1] - offset} PDB"
-        )
     report_difs(difs, offset, dom3_pdb)
     in_dom3_glyc = sorted(g for g in glyc_sites if dom3_uni[0] <= g <= dom3_uni[1])
     print(
@@ -972,15 +1247,15 @@ def main() -> None:
     cetuximab_control(foot, offset, mapping)
 
     print("\n[6/6] Table et patches")
-    centre3, axis = face_axis(residues, offset, dom3_uni, dom1_uni)
-    rows = build_table(
-        residues, offset, mapping, dom3_uni, foot, glyc_sites, ss_cys, centre3, axis
-    )
+    rows = build_table(residues, offset, mapping, dom3_uni, foot, glyc_sites, ss_cys)
     in_dom3 = [r for r in rows if r["in_domain3"]]
     n_ident = sum(1 for r in in_dom3 if r["status"] == "identical")
     print(f"  {len(in_dom3)} residus dans le domaine III, {n_ident / len(in_dom3):.1%} identiques")
-    n_lig = sum(1 for r in in_dom3 if r["face"] == "ligand")
-    print(f"  face ligand : {n_lig} | face externe : {len(in_dom3) - n_lig}")
+    dfab = [r["dist_fab"] for r in in_dom3]
+    print(
+        f"  dist_fab (remplace `face`) : min {min(dfab):.1f}  median "
+        f"{np.median(dfab):.1f}  max {max(dfab):.1f} A"
+    )
 
     patches_all = enumerate_patches(rows, residues)
     size_distribution(patches_all)
@@ -992,23 +1267,38 @@ def main() -> None:
     dedup_sweep(patches)
 
     res_csv = write_csv(DATA / "egfr_residues.csv", in_dom3)
-    pat_csv = write_csv(DATA / "egfr_patches.csv", patches, drop=("member_set", "members"))
+    pat_csv = write_csv(
+        DATA / "egfr_patches.csv", patches, drop=("member_set", "members", "members_full")
+    )
     pdb_path = write_bfactor_pdb(residues, rows)
 
     ranked = show_ranking(
         patches,
-        "sasa_apolar",
-        "CLASSEMENT UNIQUE — SASA APOLAIRE ABSOLUE (A2). min_glyc est brute, non ponderee.",
-        n=15,
+        "sasa_apolar_full",
+        "CLASSEMENT PRINCIPAL — SASA APOLAIRE ABSOLUE, MEMBRES NON MASQUES (A2)."
+        "\nglyc et dFab brutes, non ponderees. trc = residus que le masque excluait.",
+        n=20,
+        sfx="_full",
     )
+    show_ranking(
+        patches,
+        "apolar_frac_full",
+        "CLASSEMENT — FRACTION APOLAIRE, MEMBRES NON MASQUES",
+        n=20,
+        sfx="_full",
+    )
+    site_report(patches, FLOOR_APOLAR, dom3_pdb)
+    neighbourhood_report(patches, foot)
+    floor_report(patches, FLOOR_APOLAR, n=20)
+    ranked_den = sorted(patches, key=lambda p: -p["sasa_apolar_per_res_full"])
+    truncation_report(ranked, ranked_den)
     footprint_report(ranked, foot)
     density_report(ranked, patches)
     cysteine_report(ranked)
 
-    top = sorted(patches, key=lambda p: -p["sasa_apolar"])[:3]
-    print("\ncomposition des 3 premiers (SASA apolaire) :")
-    for p in top:
-        print(f"  {p['centre']:<7} {' '.join(p['members'])}")
+    print("\ncomposition des 3 premiers (membres non masques, * = hors domaine III) :")
+    for p in ranked[:3]:
+        print(f"  {p['centre']:<7} {' '.join(p['members_full'])}")
 
     print(f"\nCSV residus : {res_csv}")
     print(f"CSV patches : {pat_csv}")
