@@ -630,3 +630,267 @@ serrée. Trois relâchements possibles, aucun encore appliqué :
 
 Le funnel tel quel est publiable — c'est un résultat négatif documenté — mais il ne
 produit pas de lot soumissible.
+
+---
+
+## Refonte de la carte d'épitope (01/10/2026) — `egfr_epitope_map.py`
+
+Second passage sur le script. Le run du 30/09 concluait à un funnel effondré à un seul
+site, sans contenu apolaire, et posait l'incompatibilité ancrage acide / designabilité
+comme hypothèse. **Cette conclusion était un artefact d'échantillonnage, et elle est
+maintenant réfutée par la mesure.**
+
+### Le défaut : l'énumération était le filtre
+
+`rank_patches` itérait sur les ancres acides conservées et exposées, puis ramassait les
+membres dans un rayon. « Être centré sur un Asp/Glu conservé » n'était donc pas un
+critère appliqué à un échantillon de sites — c'était la **définition** du site. Conclure
+« 0 hydrophobe sur les 8 patches » revenait à constater que des disques centrés sur des
+résidus chargés sont polaires. Tautologie, pas mesure.
+
+Correction : les centres sont désormais **tous les résidus exposés du domaine III**.
+L'ancrage acide devient deux colonnes comptées parmi les membres (`n_acidic`,
+`n_acidic_cons`). 9 ancres → **98 centres**.
+
+### Bornes du domaine III : trois sources interrogées, aucune codée en dur
+
+| Source | Segments « L-domain » sur P00533 | Verdict |
+|---|---|---|
+| CATH via PDBe `/mappings/cath/6aru` | — | **inutilisable** : la classification ne couvre que les chaînes B/C du Fab, rien sur la chaîne A |
+| Pfam `PF01030` (InterPro) | 57-167 et **361-480** UniProt | **tronqué** : la description Pfam déclare *« missing the first 50 amino acid residues of the domain »* |
+| CATH-Gene3D `G3DSA:3.80.20.20` (InterPro) | 25-213 et **333-530** UniProt | **retenu** |
+
+**Retenu : CATH-Gene3D, domaine III = 333-530 UniProt = 309-506 PDB.** Motif : c'est la
+même classification structurale que CATH, projetée sur la séquence, et elle couvre le
+domaine entier là où Pfam l'ampute (+28 au N-term, −50 au C-term par rapport à Gene3D).
+
+Règle de sélection du segment, **géométrique et non nominative** : parmi les segments
+d'une source, on retient celui qui contient le plus de résidus de l'empreinte du Fab
+cétuximab — l'épitope du cétuximab étant dans le domaine III. Aucun indice, aucun nom,
+aucune borne en dur. Le domaine I (référence de la face, 25-213 UniProt = 1-189 PDB) est
+désigné par exclusion depuis la même source.
+
+**Corroboration rétrospective** : la région structurelle du 30/09, définie par un rayon
+de 30 Å autour du centroïde de l'empreinte, donnait PDB 311-511 = UniProt 335-535. À 2-5
+résidus près de la borne CATH-Gene3D. L'heuristique du rayon était juste ; elle est
+maintenant remplacée par une source citable. `REGION_RADIUS` et `region_mask` supprimés.
+
+### Numérotation : l'offset n'est plus une inférence
+
+`_struct_ref_seq` du mmCIF déclare pour la chaîne A : P00533, auth **1-616 ↔ db 25-640**,
+soit **offset +24**. Le balayage par maximisation de concordance donne **+24** à 99,7 %.
+Les deux routes sont conservées et le script **s'arrête en cas de désaccord**.
+
+`_struct_ref_seq_dif` déclare **8 écarts** sur la chaîne A :
+
+| auth | cristal | UniProt | type | position |
+|---|---|---|---|---|
+| 516 | LYS | ASN | `conflict` (UniProt : *Sequence conflict*, Ref. 1 CAA25240) | hors domaine III |
+| 610 | ARG | GLU | `conflict` | hors domaine III |
+| 617-622 | HIS ×6 | — | `expression tag` | hors domaine III |
+
+Ces deux conflits expliquent exactement le 99,7 % du balayage (607/609). Ils comptent
+parce que `aa_human` est lu dans la **structure** tandis que le statut humain/souris est
+dérivé de la séquence **UniProt** : aux positions concernées la table serait incohérente.
+**Aucun ne tombe dans le domaine III** — impact réel nul, mais le script lève désormais
+une alerte bruyante si c'était le cas.
+
+### Glycanes : filtre dur retiré
+
+**2 NAG seulement sont modélisés sur la chaîne A** de 6ARU (auth 709, 710), pour 1 sur C,
+2 sur D, 2 sur E, + MAN×5 et BMA×1. À 3,20 Å un arbre glycanique est flexible et mal
+ordonné : l'absence de densité n'est pas l'absence de glycane. Mesurer l'occlusion par la
+SASA en gardant les NAG est donc **inapplicable** sur cette structure, et le masquage sur
+l'annotation UniProt reste le bon choix pour l'expérience — la cible mesurée sera
+glycosylée.
+
+**13 séquons N-linked annotés, dont 5 dans le domaine III** : 352, 361, 413, 444, 528
+UniProt. La densité est le vrai problème, pas la sévérité du seuil.
+
+`GLYCAN_EXCLUSION` (filtre dur, écartait 7 patches sur 9) devient `GLYCAN_REF = 12.0`,
+**sans recalibrage**, utilisé comme rampe linéaire d'atténuation : pénalité = 0 au contact
+du séquon, 1 au-delà de 12 Å. Forme posée, non calibrée, affichée en colonne
+(`glyc_penalty`, `score_glyc_pen`) et dans un second classement. Un patch n'est plus
+supprimé par une constante jamais justifiée ; il est classé plus bas, motif lisible.
+
+### SASA ventilée par élément
+
+`ShrakeRupley` passe au niveau atomique. C et S = apolaire, N et O = polaire. Colonnes
+`sasa_apolar`, `sasa_polar`, `apolar_frac` en Å². **Clé de tri = SASA apolaire absolue**,
+pas le ratio, pas un comptage de `LIVFMWY` — un comptage rend invisibles les tiges
+aliphatiques des Lys/Arg, qui exposent réellement du carbone. `n_hydro` conservé en
+colonne pour comparer l'ancienne métrique à la nouvelle.
+
+Réserve mesurée : **corrélation taille de patch / SASA apolaire absolue = 0,64**. Le tri
+absolu classe donc en partie la taille. À garder en tête au moment de choisir.
+
+### Colonne `face`
+
+Le site de liaison de l'EGF est ménagé entre domaines I et III. Axe orienté du centroïde
+du domaine III vers celui du domaine I ; produit scalaire positif = `ligand`, négatif =
+`externe`. Répartition : **97 ligand / 101 externe** sur 198 résidus du domaine III.
+
+### Résultats
+
+```
+198 résidus dans le domaine III, 87,4 % identité humain/souris
+ 98 exposés → 98 centres
+ 93 patches à ≥ 6 membres
+```
+
+Distribution des tailles avant toute retenue : min 5, médiane 9, max 16, moyenne 9,1.
+Seuls **5 patches sur 98 (5 %) sont sous le minimum de 6** — le seuil hérité ne fait
+quasiment rien dans ce régime, contrairement au précédent.
+
+Déduplication : **aucun seuil fixé**, par décision. Le recouvrement avec l'union des
+patches mieux classés est saturé (médiane 1,00), ce qui est attendu avec 98 centres
+chevauchants. Balayage fourni à la place :
+
+| seuil | 0,1 | 0,2 | 0,3 | 0,4 | 0,5 | 0,6 | 0,7 | 0,8 | 0,9 |
+|---|---|---|---|---|---|---|---|---|---|
+| sites | 7 | 8 | 9 | 11 | 13 | 14 | 16 | 21 | 26 |
+
+### Ce que la mesure tranche
+
+**L'incompatibilité ancrage acide / designabilité est réfutée.**
+
+- **64 patches sur 93** portent au moins une ancre acide conservée.
+- **15 patches** combinent `apolar_frac ≥ 0,55` **et** `n_acidic_cons ≥ 1`.
+- Le premier au classement apolaire, C482, sort à 639 Å² apolaires et `apolar_frac` 0,57,
+  avec 2 ancres acides conservées.
+
+Le run du 30/09 ne voyait aucun site apolaire parce qu'il n'en avait énuméré aucun. La
+tension posée comme hypothèse structurale n'existe pas dans les données : sur le domaine
+III de l'EGFR, surface apolaire et ancre acide conservée coexistent largement.
+
+Conséquence directe : **le découplage envisagé — soumettre des binders simples pour le
+classement, garder le pH comme analyse méthodologique — n'a plus lieu d'être.** Les deux
+objectifs sont poursuivables sur les mêmes sites.
+
+Note de prudence sur le premier du classement : `C482` est une cystéine, donc très
+probablement engagée dans un pont disulfure de la cible. Rien d'éliminatoire — c'est la
+cible, pas le binder — mais le centre n'est pas un point d'ancrage à traiter naïvement.
+
+### Supprimé
+
+`annotated_repeat()` et la colonne `uniprot_repeat2` (l'annotation Repeat d'UniProt est
+établie inutilisable, le fait est consigné, le code qui le réaffiche ne l'est plus) ;
+`check_tethered()` (37 lignes re-dérivant à chaque run un fait déjà consigné : contacts
+242-253 ↔ 563-595) ; la distance morte de `fab_footprint()` (la fonction renvoyait
+`dict[int, float]` dont aucun des quatre appelants ne lisait le float).
+
+### Ce qui n'est PAS décidé, volontairement
+
+Aucun seuil de retenue n'est appliqué : ni déduplication, ni filtre glycane, ni critère
+de conservation, ni critère de face. Le script sort les colonnes et les distributions.
+La sélection se fait à la lecture, et sera consignée séparément.
+
+### Pénalité glycane retirée (01/10, même journée)
+
+`glyc_penalty` et `score_glyc_pen` supprimés, second classement supprimé. `min_glyc`
+reste, **colonne brute en Å, ni filtre ni pondération**. Un seul classement, sur la SASA
+apolaire absolue.
+
+Motif, mesuré avant de trancher : la forme `clamp(min_glyc/12, 0, 1)` appliquée
+multiplicativement à la SASA apolaire annulait **22 patches sur 93** (pénalité exactement
+0 à `min_glyc = 0`) — le filtre dur, mais sans ligne de journal, donc en pire. Et
+**77 patches sur 93** étaient pénalisés : ce n'était pas une correction marginale, ça
+pilotait le classement, avec des écarts de rang jusqu'à −33 (C482 : rang 1 → 34). La pente
+imposait de surcroît un taux de change jamais choisi : 1 Å de distance au séquon = 1/12 de
+la SASA apolaire, soit 50 Å² sur un patch à 600 Å². Les distances se lisent à la main sur
+la liste courte.
+
+### [A] Empreinte cétuximab — la calibration enfin faite
+
+C'est le seul point d'ancrage disponible : un site où une protéine se lie réellement.
+
+| | |
+|---|---|
+| Patches touchant l'empreinte | **38 sur 93** |
+| SASA apolaire, médiane tous patches | 352 Å² |
+| SASA apolaire, médiane patches d'empreinte | **388 Å²** |
+| Recouvrement maximal | **S468**, 9 des 24 résidus d'empreinte, **rang 34**, 402 Å², 40,2 Å²/membre |
+
+**Ce que ça dit de l'échelle** : un binder protéique fonctionnel occupe un site à ~390-400 Å²
+de SASA apolaire et ~40 Å²/membre. Les 639 Å² de C482 sont donc largement au-dessus du
+point de calibration, et la gamme 400 Å² est démontrée suffisante — ce n'est pas une
+estimation, c'est un cétuximab. Le haut du classement n'est pas un seuil à atteindre.
+
+Note : les patches d'empreinte sont légèrement **au-dessus** de la médiane mais pas en tête
+(rangs 6, 9, 13, 17, 34, 51, 57, 60, 67, 69, 72, 73). L'affinité réelle du cétuximab ne se
+lit donc pas dans la SASA apolaire, ce qui borne ce que cette métrique prétend prédire.
+
+**Défaut révélé par cette lecture — la colonne `face` ne mesure pas ce qu'elle annonce.**
+Tous les patches d'empreinte sortent à `face = 0,00`, c'est-à-dire face externe. Or
+l'épitope du cétuximab chevauche la surface de liaison de l'EGF sur le domaine III. La
+cause est la conformation : **6ARU est replié, donc les domaines I et III sont écartés et
+le site de liaison du ligand est démonté.** L'axe centroïde III → centroïde I ne suit pas
+la face ligand dans cet état. `face` mesure « côté tourné vers le domaine I en conformation
+repliée », ce qui n'est pas « face ligand ». À ne pas utiliser comme critère tant que ce
+n'est pas refait sur une structure étendue — hors périmètre pour l'instant.
+
+### [B] Densité apolaire par membre — le tri absolu classe bien la taille
+
+| | |
+|---|---|
+| Corrélation `n` / SASA apolaire **absolue** | **+0,637** |
+| Corrélation `n` / SASA apolaire **par membre** | **−0,182** |
+| Taille médiane du top-10 absolu | **13,5** |
+| Taille médiane du top-10 par membre | **7,5** |
+| Intersection des deux top-10 | **3 / 10** (T358, S356, P361) |
+
+Réponse nette : **oui, le tri absolu favorise systématiquement les gros patches.** Les deux
+classements ne décrivent pas le même ensemble.
+
+Et le classement par densité fait remonter exactement ce que le challenge demande — des
+patches petits, denses, **et** doublement qualifiés :
+
+| rang densité | centre | n | Å²/membre | ident. | acidC | glyc | rang absolu |
+|---|---|---|---|---|---|---|---|
+| 1 | H359 | 6 | 80,9 | 0,83 | 0 | 5,8 | 12 |
+| 2 | S356 | 7 | 80,4 | 0,71 | 0 | 7,8 | 4 |
+| 3 | T358 | 8 | 78,3 | 0,88 | 1 | 5,8 | 2 |
+| 4 | L325 | 7 | 60,0 | **1,00** | 1 | 7,3 | 27 |
+| 6 | T330 | 8 | 57,2 | 0,88 | **2** | 5,8 | 15 |
+| 8 | D323 | 8 | 53,7 | **1,00** | **2** | 7,3 | 23 |
+| 9 | G317 | 9 | 49,0 | **1,00** | **2** | 7,3 | 20 |
+| 10 | K333 | 6 | 48,7 | **1,00** | **2** | 4,8 | 68 |
+
+Quatre patches à **100 % d'identité humain/souris avec 2 ancres acides conservées**, dont
+trois invisibles dans le top-10 absolu (rangs 23, 20, 68). G317 / D323 / K333 / T330 / L325
+occupent PDB 317-333 = **UniProt 341-357**, soit la portion N-terminale du domaine III que
+**Pfam aurait amputée** (PF01030 démarre à 361). Le choix de CATH-Gene3D se paie
+directement ici.
+
+À noter : D323 et E320 étaient les ancres écartées le 30/09 par le filtre glycane dur
+(6 et 7 Å). Le retrait du filtre les ressuscite, cohérent.
+
+### [C] Cystéines pontées — réserve légitime, effet négligeable
+
+25 ponts disulfure annotés sur P00533, dont **6 touchant le domaine III** : (329,333),
+(337,362), (470,499), (506,515), (510,523), (526,535) UniProt. Soit 10 cystéines pontées
+dans le domaine, PDB 309, 313, 338, 446, 475, 482, 486, 491, 499, 502.
+
+**21 patches sur 93** contiennent au moins une cystéine pontée. Sur le top-5 apolaire :
+
+| centre | cysSS | apolaire | dont cysSS | part | corrigé | rang corrigé |
+|---|---|---|---|---|---|---|
+| C482 | 1 | 639 | 15 | **2,3 %** | 624 | 2 |
+| T358 | 0 | 627 | 0 | 0,0 % | 627 | 1 |
+| Q480 | 1 | 596 | 15 | 2,5 % | 581 | 3 |
+| S356 | 0 | 563 | 0 | 0,0 % | 563 | 4 |
+| V481 | 1 | 557 | 15 | 2,6 % | 542 | 5 |
+
+Réponse : **non, le haut du classement ne tire pas sa SASA apolaire de soufres pontés.**
+La contribution plafonne à 15 Å², soit 2,3-2,6 %. Le soufre de C482 est largement enfoui
+dans son pont avec C491 (UniProt 506-515). Défalquer ne change qu'une permutation
+C482 ↔ T358. Ma réserve était fondée sur le principe et sans portée quantitative — dit
+franchement, elle ne méritait pas le rang qu'elle occupait dans mon message.
+
+Le reste de la réserve tient quand même, pour une autre raison : un centre sur cystéine
+pontée est un résidu structurellement contraint, pas un point d'accroche à solliciter.
+
+### Déduplication : toujours aucun seuil
+
+Le balayage ne montre aucune coupure naturelle (continuum 7 → 26 sites de 0,1 à 0,9).
+La liste se lit à la main. Aucun seuil écrit dans le code.
