@@ -143,6 +143,11 @@ GPU=L40S .venv/bin/modal run --detach modal_bindcraft.py \
   --max-trajectories 3 --run-name test1
 ```
 
+> **Périmé depuis l'ajout de `parallel` (noté le 01/10).** Cette commande telle quelle
+> n'exécute plus rien : le fichier déclare deux `local_entrypoint`, Modal refuse de choisir,
+> **et sort en code 0**. Écrire `modal_bindcraft.py::main`. Conservée ici telle qu'elle a
+> réellement tourné le 23/09, le journal n'étant pas réécrit.
+
 App `ap-OoBXPM6BtVeYmf4qGauJUA`. **47 min 25 s**, 78 fichiers, coût **$1,54**
 (2845 s × $0,000542/s). Terminé sans exception, app en état `stopped`.
 
@@ -1123,3 +1128,345 @@ Seuil de disjonction non fixé, balayé : **τ = 0,00 et 0,10 donnent les mêmes
 et un site à risque.** Pas quatre sites équivalents. Répartition proposée pour jeudi :
 la référence 317-330 en principal, N449 en secondaire, K375 sur le slot « à risque » que
 le §7 de CLAUDE.md demande de garder. C502 non alloué.
+
+---
+
+## Relecture du règlement à la source (01/10/2026)
+
+Page relue : <https://proteinbase.com/competitions/anthropic-adaptyv-2026/challenges/egfr>.
+`challenge-01-egfr.md` est une synthèse datée du 30/09 ; cette entrée confirme ou corrige.
+
+### Confirmé
+
+| point | valeur à la source |
+|---|---|
+| Colonnes CSV | `name`, `sequence`, `molecule_class` |
+| `molecule_class` | `protein`, `nanobody`, `scfv`, `fab_kappa`, `fab_lambda` |
+| Plafond | Track 1 : 40. **Tracks 2 et 3 : 20** |
+| Ordre du CSV | *« Submit your designs as a CSV ordered by how you would rank your molecules (top row higher). »* |
+| Longueur | 10-250 aa |
+| Catégories | microbinders < 40 ; **minibinders 40-100 inclus** ; grands binders > 100 ; nanobodies ; anticorps |
+| Clôture | **4 octobre, 23:59 AoE** |
+
+### Le piège : la page énonce les objectifs dans l'ordre INVERSE de leur poids
+
+- Section « Three objectives » : **1. affinité, 2. cross-réactivité souris, 3. sélectivité pH.**
+- Section « How designs are ranked » : **1. sélectivité pH, 2. cross-réactivité souris, 3. affinité.**
+
+C'est l'ordre du **classement** qui compte, et il met le pH en premier. CLAUDE.md §1 était
+donc juste, mais pour une raison qui n'était pas écrite : quiconque lit la seule section
+« Three objectives » conclut que l'affinité prime. À ne pas relire de mémoire.
+
+**Conséquence directe : la clé de tri des sites est validée.** `n_acidic_cons` →
+`frac_ident` → `sasa_apolar` suit l'ordre du classement. La correction du 01/10, qui
+plaçait l'ancre acide avant l'identité, était la bonne.
+
+### Un durcissement à ne pas enjoliver
+
+Formulation de l'objectif pH à la source : *« you must design a binder that binds human
+EGFR at pH 6.5 and shows **no detectable binding** at pH 7.4. »* C'est un switch binaire,
+plus exigeant que le « décalage de KD » que CLAUDE.md §7 donne comme attente réaliste.
+
+La tension est réelle et reste à assumer telle quelle dans le dossier : les binders
+pH-dépendants publiés obtiennent typiquement un facteur quelques-uns sur le KD, pas un
+tout-ou-rien. On ne prétendra pas atteindre « no detectable binding » ; on mesurera et on
+rapportera ce qu'on obtient.
+
+## Commande Modal : `::main` obligatoire (01/10)
+
+`modal_bindcraft.py` déclare deux `local_entrypoint` (`main`, `parallel`). Sans suffixe,
+Modal refuse de choisir, **n'exécute rien, et sort en code 0** :
+
+```
+Error: Specify a Modal Function or local entrypoint to run.
+...
+[exited with code 0]
+```
+
+Corrigé dans CLAUDE.md §5. La commande de `test1` au 23/09 est annotée sur place, pas
+réécrite. Un échec silencieux à code 0 est ce qui ne doit pas rester dans un fichier de
+commandes : dans un script d'automatisation il passe pour un succès.
+
+## Le plafond en trajectoires ne freine pas les tentatives
+
+Lu dans la source BindCraft au commit `c0a48d5`, `functions/generic_utils.py` :
+
+```python
+def check_n_trajectories(design_paths, advanced_settings):
+    n_trajectories = [f for f in os.listdir(design_paths["Trajectory/Relaxed"])
+                      if f.endswith('.pdb')]
+    if advanced_settings["max_trajectories"] is not False and \
+       len(n_trajectories) >= advanced_settings["max_trajectories"]:
+        return True
+```
+
+Le comptage porte sur **`Trajectory/Relaxed` uniquement**. Une trajectoire qui finit en
+`LowConfidence` ou `Clashing` ne consomme pas le quota — tout en ayant consommé du GPU.
+Donc `--max-trajectories N` plafonne les trajectoires **relaxées**, pas les tentatives.
+
+**Le vrai frein de budget est `TIMEOUT`** (variable d'environnement, minutes, défaut 300),
+appliqué comme `timeout=TIMEOUT * 60` sur la fonction Modal. CLAUDE.md §2 disait « tout run
+sans `--max-trajectories` est un bug de budget » : c'est insuffisant. Un run **avec**
+`--max-trajectories` mais un `TIMEOUT` à 300 peut brûler 5 h de GPU sur une cible où rien ne
+relaxe. Le plafond en trajectoires reste utile comme garde secondaire, pas comme budget.
+
+Autre fait vérifié dans `generic_utils.py` : **`create_dataframe` ne touche pas un CSV
+existant** (`if not os.path.exists(csv_file)`). Les stats s'accumulent donc d'un run à
+l'autre sous le même `run_name` — c'est ce qui rend la reprise possible.
+
+---
+
+## Run de fumée `smoke-G317` — EGFR domaine III (01/10/2026)
+
+Premier run GPU sur la vraie cible. App `ap-JcN5ZalbdRyeDLQkJGRV4c`, L40S, détaché.
+
+```bash
+GPU=L40S .venv/bin/modal run --detach modal_bindcraft.py::main \
+  --input-pdb inputs/6ARU_A_309-506.pdb --target-chains A \
+  --target-hotspot-residues "A318,A320,A323,A325" \
+  --lengths 50,130 --number-of-final-designs 100 \
+  --max-trajectories 3 --run-name smoke-G317
+```
+
+Cible : `inputs/6ARU_A_309-506.pdb`, 198 résidus, produite par `prepare_target.py`.
+Hotspots : les deux ancres acides D323/E320 et le cœur apolaire I318/L325 du patch
+représentatif G317, tous à 100 % d'identité humain/souris.
+
+### Deux leçons de commande
+
+Première tentative sans `::main` : Modal refuse de choisir entre les deux
+`local_entrypoint`, n'exécute rien, **et sort en code 0**. Aucune dépense. Corrigé dans
+CLAUDE.md §5.
+
+Seconde, de ma part : la sortie était pipée dans `tail -60`, ce qui **a détruit le log du
+run**. Il n'en restait que les 60 dernières lignes. Rediriger vers un fichier, toujours.
+
+### Chiffres mesurés
+
+| grandeur | valeur |
+|---|---|
+| Mur total | **60 min 44 s** (3644 s) |
+| Coût | **$1,97** (3644 s × $0,000542/s, tarif L40S confirmé) |
+| Tentatives | **6** (3 relaxées + 2 LowConfidence + 1 Clashing) |
+| Temps par tentative, tout compris | **10,1 min** (boot, échecs, MPNN et PyRosetta inclus) |
+| Temps par trajectoire relaxée seule | 7 min 52 s, 8 min 12 s, 9 min 24 s → **moyenne 8,49 min** |
+| `p_relax` | **3/6 = 0,50** |
+| Designs acceptés | **2** |
+| Modes de liaison indépendants | **1** — les 2 acceptés sont `mpnn1` et `mpnn2` de la *même* trajectoire |
+| Coût par design accepté | **$0,99** |
+| Coût par mode indépendant | **$1,97** |
+
+Le temps par trajectoire dépend de la longueur du binder : 62 aa → 7 min 52 s, 63 aa →
+8 min 12 s, 83 aa → 9 min 24 s. Environ +1,5 min pour +20 résidus. Pour la plage 55-95
+(moyenne 75), compter ~8,7 min par trajectoire relaxée.
+
+**La troncature a payé.** 8,49 min par trajectoire sur 198 résidus, contre 9,0 min mesurés
+sur PD-L1 qui n'en fait que 115. Mon estimation a priori de 14-23 min était pessimiste d'un
+facteur ~2 : la cible tronquée ne coûte pas plus cher que la démo.
+
+### Profil de rejet — `i_pAE` domine massivement
+
+`failure_csv.csv`, comptages cumulés par filtre :
+
+| filtre | rejets |
+|---|---|
+| **`i_pAE`** | **20** |
+| `pLDDT` | 6 |
+| `i_pTM` | 3 |
+| `Trajectory_one-hot_pLDDT` | 2 |
+| `Trajectory_final_pLDDT` | 2 |
+| `Trajectory_logits_pLDDT` | 1 |
+| `Trajectory_Clashes` | 1 |
+| tous les autres (pTM, pAE, dG, dSASA, SC, PackStat, hydrophobicité, H-bonds non satisfaites, RMSD…) | **0** |
+
+`i_pAE` rejette plus que tous les autres réunis. C'est le seul levier qui compte si le
+rendement doit monter : les deux designs acceptés sortent à `i_pAE` 0,17-0,18, donc les
+rejetés sont très au-dessus. À vérifier contre la valeur réelle dans `default_filters.json`
+avant de toucher à quoi que ce soit — **aucune modification de seuil n'a été faite**.
+
+### Les deux designs acceptés
+
+Tous deux issus de la trajectoire `l83_s142379`, donc **frères, pas indépendants**.
+
+| | `_l83_s142379_mpnn1` | `_l83_s142379_mpnn2` |
+|---|---|---|
+| Longueur | **83 aa** | **83 aa** |
+| Average_pLDDT | 0,93 | 0,93 |
+| Average_i_pTM | 0,83 | 0,83 |
+| Average_i_pAE | 0,18 | 0,17 |
+| ShapeComplementarity | 0,67 | 0,69 |
+| dG | −47,73 | −54,78 |
+| dSASA | 1842,85 | 1969,24 |
+| Surface_Hydrophobicity | 0,15 | 0,17 |
+| Unsat H-bonds | 3,0 | 3,5 |
+| **His dans la séquence** | **3** | **3** |
+
+```
+mpnn1 MKKLSKGEEVVEKVKKEAEELKEKLEKGELSLEEVEEKWVEIWKEAEKEAPETFHKISEVEYEFQLWLHHKRIEERKKKEEEE
+mpnn2 MKKLSKGEKVVEEVRKKTEELKKRLEEGKLSIEEVEKEWVKIWKEAEKEAPETFHKISEVEYEFQLWLHHKKIEERKKKEEEE
+```
+
+**Deux observations qui comptent pour le challenge :**
+
+1. **83 aa : dans la catégorie minibinders (40-100) sans l'avoir cherché.** Le run utilisait
+   `--lengths 50,130`. La production passera à `55,95` pour garantir la catégorie.
+2. **3 His chacun, et `InterfaceAAs` de la trajectoire `l83` donne `H: 3` — trois His à
+   l'interface, sans aucun biais de composition appliqué.** La trajectoire `l63` en avait
+   aussi 3. C'est inattendu, et c'est une donnée pour l'objectif n°1 : la baseline produit
+   déjà des His d'interface. Reste à vérifier si elles sont appariées à un Asp/Glu de la
+   cible — ce que le run ne dit pas et qu'il faudra mesurer sur les structures.
+
+### Fin du run : annulation externe, cause non attribuée
+
+Arrêt à 60 min 44 s sur `RemoteError: Function call was cancelled by user or a failure.`
+Log distant :
+
+```
+2026-10-01T16:41:26+0000 Received a cancellation signal while processing input (...)
+2026-10-01T16:41:26+0000 Successfully canceled input (...)
+```
+
+**Ni timeout, ni OOM, ni exception applicative.** Un signal d'annulation externe. Je ne
+l'attribue pas : aucune commande lancée localement pendant le run n'annule, et le log ne dit
+pas qui a demandé l'annulation. À surveiller sur le prochain run ; si ça se reproduit, c'est
+un facteur de dimensionnement.
+
+Le run était encore au travail à l'arrêt — dernière ligne utile
+`Unmet filter conditions for ..._l62_s857853_mpnn1`, donc en pleine évaluation MPNN de la
+troisième trajectoire. Les 3 relaxées du plafond étaient atteintes, mais la boucle ne teste
+le plafond qu'au début de l'itération suivante.
+
+### Acquis : une annulation commite le volume
+
+**Tous les artefacts ont survécu** — 4 CSV, 3 trajectoires relaxées, 2 LowConfidence,
+1 Clashing, 2 acceptés, 2 MPNN. Le `finally: volume.commit()` du wrapper a tourné malgré
+l'annulation. C'est la moitié de la réponse à « un run interrompu perd-il tout ». Un kill par
+**timeout** reste à vérifier séparément : même mécanisme probable, non testé.
+
+### Arborescence confirmée
+
+Un répertoire par `run_name` sous `/outputs`, à côté de `test1`, `par-test`, `par-test2`,
+`par-test3` :
+
+```
+smoke-G317/{trajectory,mpnn_design,final_design}_stats.csv  failure_csv.csv
+           Trajectory/{Relaxed,LowConfidence,Clashing,Plots,Animation}
+           MPNN/  Accepted/  Rejected/
+```
+
+Un `run_name` par site suffit donc à séparer les sites en production.
+
+### Dimensionnement de la production, chiffres réels
+
+Formule posée précédemment, remplie. `r` = $1,95/h (L40S), `t_att` = 10,1 min tout compris,
+`p_acc_indep` = 1 mode indépendant pour 6 tentatives.
+
+```
+mode independant       = 6 tentatives = 60,7 min = $1,97
+20 modes independants  = 120 tentatives = 20,2 GPU-h = ~$39
+reparti sur 3 sites    = ~6,7 GPU-h par site
+```
+
+Découpage retenu : **`TIMEOUT=135` (2,25 h), `k = 3` appels par site, 3 sites** →
+20,25 GPU-h, **~$40**. Mur ~2,5 h si les 9 appels sont concurrents, ~6,8 h s'ils sont
+séquentiels par site. Les deux tiennent très largement dans la fenêtre de 30 h.
+
+Avec une marge ×2,5 pour absorber un `p_acc` plus faible sur les sites K375 et N449 :
+~50 GPU-h, **~$100**, mur inchangé. C'est le dimensionnement à retenir.
+
+`--number-of-final-designs` reste haut (100) et `--max-trajectories` généreux : le frein est
+`TIMEOUT`, par construction. Le coût devient alors déterministe — `S · k · T · r` ne dépend
+d'aucun taux de passage, ce que le plafond en trajectoires ne garantissait pas.
+
+---
+
+## Deux bugs trouvés par relecture (02/10/2026)
+
+### Bug 1 — `member_set_full` fuit dans le CSV
+
+`write_csv` reçoit `drop=("member_set", "members", "members_full")` mais pas
+`member_set_full`, ajouté après. La colonne 41 de `egfr_patches.csv` contient donc un
+`frozenset({...})` Python sur les 93 lignes.
+
+Deux défauts, dont le second est le grave : c'est illisible, et **l'ordre d'itération d'un
+`set` Python n'est pas stable entre exécutions**, donc le fichier n'est pas reproductible
+octet à octet. Un CSV de ce dépôt doit l'être.
+
+La colonne n'est pas supprimée — la jointure patches → résidus est utile et c'est elle qui
+permet de dériver les hotspots. Elle est reformatée : entiers triés, séparés par des
+points-virgules, sous le nom explicite `member_resnums_full`.
+
+### Bug 2 — le filtre de taille mal ciblé, et sa vraie nature
+
+`MIN_PATCH_MEMBERS` filtrait sur `n` **masqué** alors que tous les classements sont passés
+aux colonnes `_full`. Trois patches écartés à tort : **C309 (5 masqués / 15 full, 638 Å²
+apolaires)**, N504 (5/10, 333 Å²), E495 (5/7, 262 Å²).
+
+**Hypothèse testée** : « un patch centré près d'une borne a peu de membres masqués par
+construction, donc le filtre est un filtre de bord déguisé ». **Partiellement réfutée.**
+
+| mesure | valeur |
+|---|---|
+| corrélation distance-du-centre-à-la-borne / `n` masqué | **−0,095** |
+| `n` masqué médian, centres à ≤ 10 résidus d'une borne (14 patches) | **9,0** |
+| `n` masqué médian, centres éloignés (84 patches) | **9,0** |
+| sous le seuil de 6, près du bord | **2/14 (14 %)** |
+| sous le seuil de 6, loin du bord | **3/84 (3,6 %)** |
+
+Le comptage masqué n'est donc **pas** déprimé près des bornes en général : médianes
+identiques, corrélation nulle. Mais parmi les patches qui tombent sous le seuil, les patches
+de bord sont **sur-représentés d'un facteur ~4**. Et les 5 écartés se séparent proprement
+selon la distance du centre à la borne :
+
+| patch | dist. borne | n / n_full | trc | verdict |
+|---|---|---|---|---|
+| C309 | **0** | 5 / 15 | 10 | écarté à tort |
+| N504 | **2** | 5 / 10 | 5 | écarté à tort |
+| E495 | **11** | 5 / 7 | 2 | écarté à tort |
+| F357 | 48 | 5 / 5 | 0 | **correctement écarté** |
+| H409 | 97 | 5 / 5 | 0 | **correctement écarté** |
+
+**La nature du bug, énoncée précisément** : le filtre n'annonce pas ce qu'il mesure, mais de
+façon *sélective* et non systématique. Il prétend écarter les patches pauvres ; il écarte
+les patches pauvres **et** les patches de bord riches, sans distinguer. C'est la même famille
+d'erreur que la tautologie d'échantillonnage du §5 — un critère corrélé à autre chose que ce
+qu'il annonce — mais à l'inverse de celle-là, le mécanisme ici ne s'applique qu'à une
+minorité de cas. Dire « filtre de bord déguisé » surinterprète ; dire « mauvaise colonne »
+sous-interprète. La formulation juste : **un filtre de taille qui, sur les patches de bord,
+mesure la troncature au lieu de la taille.**
+
+### Prédiction, écrite AVANT la re-exécution
+
+1. Le filtre passe à `n_full`. Le lot passe de **93 à 96 patches**.
+2. **E495 (262 Å²) et N504 (333 Å²) n'atteignent pas `FLOOR_APOLAR = 400`** : ils entrent
+   dans le lot mais pas dans les 40 passants du plancher, donc **aucun effet sur l'analyse
+   de sites**.
+3. **C309 (638 Å²) franchit le plancher** : 40 → **41 passants**. Il se classerait **rang 2**
+   du classement principal, entre C482 (639) et T358 (627).
+4. **Je prédis que C309 ne forme pas un quatrième site, mais rejoint celui de K375.** L'union
+   du site K375 contient déjà 309, 310, 311, 312 et descend jusqu'à 289 — C309 est au même
+   endroit, la jonction domaine II / domaine III. Recouvrement attendu élevé, donc fusion.
+5. **Je prédis que le regroupement en 3 sites disjoints tient**, C309 étant absorbé plutôt
+   qu'inséré. Risque identifié : si C309 porte ≥ 3 ancres acides conservées, la clé pH-first
+   le place avant C502 et il devient le représentant du site, ce qui changerait l'étiquette
+   du site 1 sans changer sa composition.
+6. **Je prédis d'écarter C309 quand même, par argument et non par rang** : 10 de ses 15
+   membres sont hors du domaine III, donc ~2/3 de sa surface apolaire est portée par le
+   domaine II et la jonction II/III. Le §4 a déjà tranché que la surface dépendant de
+   l'arrangement inter-domaines en conformation repliée est celle dont on ne se fie pas —
+   c'est l'argument qui a supprimé la colonne `face`. C309 est le cas limite exact de cette
+   règle. Son rang 2 est un artefact de la conformation, pas une propriété de l'épitope.
+7. C309 est de plus centré sur une **cystéine pontée** (309 = UniProt 333, apparié à 329),
+   donc un centre structurellement contraint.
+
+### Bug 3 — jointure lossy, corrigée dans le même geste
+
+`egfr_residues.csv` ne contenait que les 198 résidus du domaine III, alors que
+`member_resnums_full` puise dans les 327 exposés de la chaîne entière. La jointure
+patches → résidus perdait donc des membres, **et le plus là où ça compte** : C502 perdait
+7 membres sur 17, C309 en perdrait 10 sur 15. Les hotspots des patches de bord étaient
+indérivables.
+
+`egfr_residues.csv` couvre maintenant **toute la chaîne A (609 résidus)**, la colonne
+`in_domain3` distinguant l'appartenance. Les agrégats imprimés restent calculés sur le
+domaine III.
