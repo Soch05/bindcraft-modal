@@ -129,12 +129,94 @@ d'exposition.
 `neighbourhood_report`, `cysteine_report`. Aucun ne filtre ; tous impriment.
 `write_csv`, `write_bfactor_pdb` écrivent les sorties.
 
+Les 41 colonnes du CSV de patches sont décrites une par une — ce qu'elles mesurent, leur
+unité, ce qu'elles ne capturent pas — dans **[`data/LECTURE.md`](../data/LECTURE.md)**. Ce
+document-ci décrit le pipeline ; celui-là décrit la sortie.
+
+## 3 bis. Ordre d'exécution de `main()`
+
+Les sections ci-dessus disent ce que fait chaque fonction, pas dans quel ordre la lire.
+Les six étapes sont celles que le script imprime (`[1/6]` … `[6/6]`).
+
+**`[1/6]` UniProt**
+1. `load_uniprot(HUMAN_AC)`, `load_uniprot(MOUSE_AC)` → les deux entrées, depuis le cache.
+2. `uniprot_features(h_entry, "Glycosylation")` filtré sur `N-linked` → 13 séquons.
+3. `disulfide_cys(h_entry)` → positions des cystéines pontées, 25 ponts.
+
+**`[2/6]` Alignement**
+4. `align_orthologs(seq_h, seq_m)` → `mapping` position humaine → (aa souris, statut).
+   Imprime l'identité globale, 90,6 %.
+
+**`[3/6]` Structure**
+5. `load_chain(seq_h)`, qui enchaîne lui-même :
+   `fetch` du cif → `MMCIFParser` → `fab_footprint(model)` **avant** de détacher le Fab →
+   détachement des chaînes non cibles puis des hétéroatomes → `scan_offset` →
+   `deposited_offset` → **assertion d'accord entre les deux** → `ShrakeRupley` niveau atome.
+   Rend `residues, offset, foot, difs`.
+
+**`[4/6]` Bornes du domaine**
+6. `foot_uni` = l'empreinte translatée en numérotation UniProt.
+7. `resolve_domain_iii(foot_uni, offset)` → interroge PDBe CATH, Pfam, CATH-Gene3D,
+   imprime les trois, applique `pick_domain` à chacune, retient Gene3D. Rend `dom3_uni`.
+8. `report_difs(difs, offset, dom3_pdb)` → alerte si un écart tombe dans le domaine.
+9. Impression des séquons situés dans le domaine : 5 sur 13.
+
+**`[5/6]` Contrôle**
+10. `cetuximab_control(foot, offset, mapping)` → 70,8 % contre 87,4 % sur le domaine.
+    **C'est le point de contrôle du pipeline** : il échoue bruyamment si l'alignement ou
+    l'offset est cassé, avant toute dépense d'interprétation.
+
+**`[6/6]` Table, patches, rapports**
+11. `build_table(...)` → une ligne par résidu observé, 18 colonnes.
+12. `enumerate_patches(rows, residues)` → 98 patches, deux jeux de membres chacun.
+13. `size_distribution(patches_all)` → distribution des tailles **avant** tout filtre.
+14. Filtre `n >= MIN_PATCH_MEMBERS` → 93 patches, puis tri sur `sasa_apolar_full`.
+15. `overlap_distribution`, `dedup_sweep` → recouvrements et balayage de seuil.
+16. `write_csv` ×2, `write_bfactor_pdb` → les trois sorties sur disque.
+17. `show_ranking` ×2 → classement par SASA apolaire absolue, puis par fraction apolaire.
+18. `site_report` → sites disjoints. `neighbourhood_report` → calibration du voisinage.
+    `floor_report` → plancher 400 Å². `truncation_report` → effet du masque.
+    `footprint_report` → calibration cétuximab. `density_report` → effet de taille.
+    `cysteine_report` → part des soufres pontés.
+
+Les étapes 13 et 16 sont volontairement **avant** les classements : les sorties sur disque
+ne dépendent d'aucun rapport, et un rapport qui échouerait ne ferait pas perdre les CSV.
+
 ---
 
 ## 4. Inventaire des constantes et critères binaires
 
 **C'est la partie qui compte.** Tout ce qui, en changeant, changerait la sortie. État des
 lieux, sans proposition de correction.
+
+### Le choix de structure — la décision la plus lourde du pipeline
+
+Elle ne ressemble pas à une constante et c'est pour ça qu'elle manquait à cet inventaire.
+Tout ce qui suit découle d'un seul choix : **6ARU**.
+
+| propriété | valeur | conséquence |
+|---|---|---|
+| conformation | **repliée** (tethered) : le bras de dimérisation du domaine II contacte le domaine IV | la SASA inclut l'occlusion par les autres domaines **dans cet état**. Un patch retenu ici est exposé en conformation repliée, pas nécessairement en conformation étendue |
+| résolution | **3,20 Å** (`_refine.ls_d_res_high`) | glycanes mal ordonnés : **2 NAG modélisés sur la chaîne A** pour 13 séquons. L'occlusion glycanique n'est pas mesurable, d'où `min_glyc` comme proxy de distance au séquon |
+| contenu | Fab de cétuximab (chaînes B, C) lié au **domaine III** | fournit l'empreinte, qui sert à la fois de contrôle positif, de désignateur de domaine, de calibrateur de `FLOOR_APOLAR` et de proxy de surface ligand-compétitive via `dist_fab` |
+| chaîne A observée | 1-616 auteur = 25-640 UniProt, 609 résidus | couvre l'ectodomaine entier, domaines I à IV |
+
+**Cette décision a déjà cassé une colonne.** `face` déduisait la face de liaison du ligand
+d'un axe centroïde domaine III → centroïde domaine I. En conformation repliée les deux
+domaines sont écartés et le site de l'EGF est démonté : les 12 patches recouvrant l'empreinte
+du cétuximab sortaient tous en « face externe », alors que cet épitope chevauche le site de
+l'EGF. La colonne a été supprimée, remplacée par `dist_fab`.
+
+**Elle justifie aussi de rester borné au domaine III.** Sur une structure repliée, toute
+conclusion portant sur une surface éloignée du site dépend d'un état conformationnel qu'on
+n'a pas choisi et qu'on ne contrôle pas. La troncature du PDB cible au domaine III est
+mesurée sûre pour le site de référence — SASA identique à 0,0 Å² près sur ses 20 résidus
+entre chaîne A entière et domaine III isolé, cf. [`prepare_target.py`](../prepare_target.py) —
+mais cette mesure vaut **pour ce site, dans cet état**. Elle ne se généralise pas.
+
+**Statut de calibration : non arbitré.** 6ARU est la structure de référence citée par le
+règlement. Aucune structure étendue n'a été chargée, aucune comparaison inter-conformation
+n'a été faite. C'est la limite la plus profonde du pipeline et elle est non testée.
 
 ### Identifiants — non arbitraires
 
@@ -151,7 +233,7 @@ lieux, sans proposition de correction.
 
 | nom | valeur | origine | statut de calibration |
 |---|---|---|---|
-| `MIN_REL_SASA` | `0.20` | **convention du domaine** — seuil usuel d'exposition relative | **non calibré sur ce projet.** Détermine quels résidus sont membres ; décale tout en aval |
+| `MIN_REL_SASA` | `0.20` | **convention du domaine, fourchette** : l'usage couvre 0,20-0,25 pour l'exposition relative. **Le choix de 0,20 dans cette fourchette est posé**, c'est la borne permissive | **non calibré sur ce projet.** Détermine quels résidus sont membres, donc `n`, toutes les SASA agrégées et le dénominateur `n_total` ; décale tout en aval. 0,25 réduirait mécaniquement le nombre de membres par patch |
 | `PATCH_RADIUS` | `11.0` Å | **posé arbitrairement** | **non calibré.** Fixe la taille de l'unité « site ». Détermine aussi le recouvrement entre patches, donc tout le groupement |
 | `CONTACT_CUTOFF` | `4.5` Å | **convention du domaine** — contact lourd | non calibré, mais l'empreinte obtenue (24 résidus, 349-473) est cohérente avec un Fab |
 | sonde SASA | `1.40` Å, 100 points | **défaut Biopython** `ShrakeRupley` | non touché. Rayon = molécule d'eau |
@@ -198,6 +280,34 @@ Les bornes du domaine III (333-530 UniProt) viennent de CATH-Gene3D. L'offset (+
 de `_struct_ref_seq` et du balayage. Les 13 séquons, les 25 ponts disulfure et les deux
 conflits de séquence viennent d'UniProt et du mmCIF. Aucune de ces valeurs n'est écrite
 dans le script.
+
+---
+
+## 4 bis. Modes d'échec
+
+Le script **s'arrête** plutôt que de se replier silencieusement sur une valeur par défaut.
+Huit conditions, toutes des `SystemExit`. Aucune n'est un `try/except` qui avale.
+
+| condition | message émis | cause probable |
+|---|---|---|
+| CATH-Gene3D ne renvoie aucun segment contenant l'empreinte | *« CATH-Gene3D n'a renvoyé aucun segment contenant l'empreinte du Fab : source retenue indisponible, arrêt plutôt qu'un repli silencieux. »* | API InterPro en panne ou changement de schéma ; ou cache `data/cathgene3d_P00533.json` corrompu. Supprimer le cache et relancer. Un repli sur Pfam serait tentant mais ses bornes sont tronquées de ~50 résidus |
+| chaînes du Fab absentes | *« Chaînes ('B', 'C') absentes de 6ARU : empreinte impossible. »* | mauvais `PDB_ID`, ou structure re-déposée avec d'autres identifiants de chaînes. Tout le pipeline en dépend : empreinte, désignation du domaine, `FLOOR_APOLAR`, `dist_fab` |
+| empreinte vide malgré les chaînes présentes | *« Empreinte vide : vérifier les identifiants de chaînes. »* | `CONTACT_CUTOFF` trop serré, ou chaînes B/C présentes mais non liées à A dans ce modèle |
+| `_struct_ref_seq` donne plusieurs offsets | *« _struct_ref_seq : N offsets distincts … La correspondance n'est pas un décalage unique, le modèle du script ne tient plus. »* | construct avec insertion ou délétion interne : la numérotation n'est plus un décalage constant. Il faudrait un mapping résidu par résidu (SIFTS), pas un scalaire |
+| offset peu fiable | *« Offset peu fiable : inspecter la chaîne à la main. »* | concordance `< 0,95` entre séquence structurale et UniProt. Mauvaise accession, mauvaise chaîne, ou beaucoup de mutations. Valeur observée : 99,7 % |
+| **désaccord entre les deux routes de numérotation** | *« DÉSACCORD de numérotation : balayage ±N vs _struct_ref_seq ±M. Deux routes indépendantes divergent, aucune n'est fiable sans inspection manuelle. »* | le cas le plus instructif : l'inférence et la déclaration du déposant se contredisent. Ne jamais arbitrer automatiquement |
+| aucun séquon sur un résidu observé | *« Aucun site de N-glycosylation ne tombe sur un résidu observé … arrêt plutôt qu'un repli silencieux sur une distance infinie. »* | annotations UniProt hors de la fenêtre observée, ou offset faux. Sans ce garde-fou, `min_glyc` vaudrait l'infini partout et **tous** les patches passeraient |
+| aucun résidu d'empreinte observé | *« Aucun résidu de l'empreinte du Fab ne tombe sur un résidu observé : la colonne dist_fab serait inopérante. »* | même famille. `dist_fab` deviendrait silencieusement vide |
+
+Les deux dernières partagent un motif qui vaut d'être nommé : **une distance dont le
+référentiel est vide ne vaut pas l'infini, elle ne vaut rien.** Un filtre adossé dessus
+laisserait tout passer en paraissant fonctionner. C'est la même famille d'erreur que la
+pénalité glycane du §5, qui annulait 22 patches sans trace.
+
+Alertes qui **n'arrêtent pas** le script mais exigent une lecture : empreinte conservée à
+≥ 90 % (masque de conservation possiblement inopérant), écart `_struct_ref_seq_dif` tombant
+dans le domaine III (table incohérente à ces positions), et source PDBe muette — celle-ci
+est tolérée par construction, `fetch_json` renvoyant `None`.
 
 ---
 

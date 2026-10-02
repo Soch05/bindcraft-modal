@@ -117,9 +117,17 @@ uv pip install -r pyproject.toml
 python egfr_epitope_map.py
 
 # Run court, une seule fonction, compatible --detach
-GPU=A100 uv run --with modal modal run --detach modal_bindcraft.py \
+# ⚠️ `::main` est OBLIGATOIRE. Le fichier déclare deux local_entrypoint (main et
+# parallel) : sans suffixe, Modal refuse de choisir, n'exécute RIEN — et sort en
+# code 0. Un échec silencieux à code 0 passe pour un succès dans un script.
+GPU=A100 uv run --with modal modal run --detach modal_bindcraft.py::main \
   --input-pdb inputs/<cible>.pdb --target-hotspot-residues "A123,A124" \
-  --lengths 50,130 --number-of-final-designs 1 --max-trajectories 20
+  --lengths 55,95 --number-of-final-designs 100 --max-trajectories 20
+
+# `--number-of-final-designs` doit rester HAUT : c'est un critère d'arrêt sur le
+# résultat. À 1, le run s'arrête au premier design accepté et ne mesure rien.
+# Et `--max-trajectories` ne compte que les trajectoires RELAXÉES : il ne plafonne
+# pas les tentatives. Le vrai frein de budget est TIMEOUT (minutes, défaut 300).
 
 # Run réel : N shards en parallèle puis agrégation.
 # ⚠️ --detach est piégeux ici : Modal ne garde en vie que la dernière fonction

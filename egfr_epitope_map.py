@@ -87,9 +87,9 @@ CONTACT_CUTOFF = 4.5  # contact lourd Fab <-> cible
 # que personne n'avait choisi (1 A = 8,3 % de la SASA apolaire). Les distances se
 # lisent a la main sur la liste courte.
 
-# Taille minimale d'un patch pour figurer au classement. La distribution complete
-# des tailles est sortie avant application, ce seuil ayant ete choisi pour un
-# regime d'enumeration qui n'existe plus.
+# Taille minimale d'un patch pour figurer au classement, appliquee a n_full. La
+# distribution complete des tailles est sortie avant application, ce seuil ayant ete
+# choisi pour un regime d'enumeration qui n'existe plus.
 MIN_PATCH_MEMBERS = 6
 
 # Plancher de SASA apolaire absolue. Adosse a la calibration sur l'empreinte du
@@ -711,6 +711,14 @@ def enumerate_patches(rows: list[dict], residues) -> list[dict]:
         rec["n_truncated"] = rec["n_full"] - rec["n"]
         rec["member_set"] = frozenset(m["pdb_resnum"] for m in masked)
         rec["member_set_full"] = frozenset(m["pdb_resnum"] for m in full)
+        # Export CSV de la liste des membres : entiers TRIES, separes par ';'.
+        # Un frozenset ecrit tel quel est illisible, et son ordre d'iteration n'est
+        # pas stable entre executions - le fichier ne serait pas reproductible
+        # octet a octet. C'est cette colonne qui permet la jointure
+        # egfr_patches.csv -> egfr_residues.csv pour deriver les hotspots.
+        rec["member_resnums_full"] = ";".join(
+            str(n) for n in sorted(rec["member_set_full"])
+        )
         rec["members"] = [
             f"{m['aa_human']}{m['pdb_resnum']}"
             + ("" if m["status"] == "identical" else f"({m['aa_mouse']})")
@@ -1260,15 +1268,24 @@ def main() -> None:
     patches_all = enumerate_patches(rows, residues)
     size_distribution(patches_all)
 
-    patches = [p for p in patches_all if p["n"] >= MIN_PATCH_MEMBERS]
+    # Filtre sur n_full, PAS sur n masque. Sur n, un patch de bord voyait sa
+    # troncature mesuree au lieu de sa taille : C309 sortait a 5 membres masques
+    # alors qu'il en a 15 au total et 638 A2 apolaires. Cf. NOTES.md du 02/10.
+    patches = [p for p in patches_all if p["n_full"] >= MIN_PATCH_MEMBERS]
     patches.sort(key=lambda p: -p["sasa_apolar"])
     print(f"\n  {len(patches)} patches a {MIN_PATCH_MEMBERS} membres ou plus, tries sur la SASA apolaire")
     overlap_distribution(patches)
     dedup_sweep(patches)
 
-    res_csv = write_csv(DATA / "egfr_residues.csv", in_dom3)
+    # Toute la chaine A, pas seulement le domaine III : `member_resnums_full` puise
+    # dans les residus exposes de la chaine entiere, donc restreindre ce CSV au
+    # domaine rendait la jointure patches -> residus lossy, et le plus sur les
+    # patches de bord (C502 perdait 7 membres sur 17). `in_domain3` distingue.
+    res_csv = write_csv(DATA / "egfr_residues.csv", rows)
     pat_csv = write_csv(
-        DATA / "egfr_patches.csv", patches, drop=("member_set", "members", "members_full")
+        DATA / "egfr_patches.csv",
+        patches,
+        drop=("member_set", "member_set_full", "members", "members_full"),
     )
     pdb_path = write_bfactor_pdb(residues, rows)
 

@@ -1470,3 +1470,77 @@ indérivables.
 `egfr_residues.csv` couvre maintenant **toute la chaîne A (609 résidus)**, la colonne
 `in_domain3` distinguant l'appartenance. Les agrégats imprimés restent calculés sur le
 domaine III.
+
+### Résultat de la re-exécution, confronté à la prédiction
+
+Prédiction écrite et commitée en `6648868` **avant** la correction.
+
+| # | prédiction | résultat | verdict |
+|---|---|---|---|
+| 1 | lot 93 → 96 patches | **96** | ✓ |
+| 2 | E495 (262 Å²) et N504 (333 Å²) sous le plancher, aucun effet | passants 40 → **41**, donc seul C309 entre | ✓ |
+| 3 | C309 franchit le plancher, **rang 2** à 638 Å² | **rang 2**, entre C482 (639) et T358 (627) | ✓ |
+| 4 | C309 **fusionne** avec le site K375 (recouvrement élevé) | recouvrement **0,33** (5/15 membres) | **✗ mécanisme faux** |
+| 5 | le regroupement en 3 sites disjoints tient | C502, K375, N449 inchangés à τ = 0,00 et 0,10 ; K463 quatrième à 0,25 | ✓ |
+| 5b | risque : si C309 a ≥ 3 ancres acides il devient représentant du site 1 | C309 a **2** ancres, C502 en a 3 → C502 garde le slot | ✓ risque non matérialisé |
+| 6 | C309 à écarter par argument, ~2/3 de sa surface hors domaine | **70 %** de sa SASA apolaire portée par les 10 membres hors domaine III | ✓ |
+| 7 | C309 centré sur une cystéine pontée | `cys_bridged = True`, UniProt 333, apparié à 329 | ✓ |
+
+Le site de référence est **inchangé** : 7 patches, 20 membres, D323 / E320 / G317 / H359 /
+L325 / T330 / T358. C309 a une identité de 0,80, il n'entre donc pas dans la composante à
+identité parfaite qui amorce la référence.
+
+### La divergence, et elle compte
+
+J'avais prédit que C309 serait **absorbé** par le site K375 — recouvrement élevé, fusion.
+Le recouvrement mesuré est de **0,33**, soit un tiers. La conclusion survit (C309 n'est pas
+un quatrième site) mais **pas pour la raison prédite** : il est rejeté parce que 0,33 dépasse
+le seuil de disjonction à τ = 0,10 et τ = 0,25, pas parce qu'il décrit le même site.
+
+**Conséquence qui n'était pas dans la prédiction : à τ = 0,50, C309 deviendrait un
+quatrième site disjoint.** Son exclusion de la liste des sites dépend donc d'un seuil
+délibérément non fixé. Ce n'est pas une position robuste, et c'est exactement pourquoi
+l'arbitrage devait être argumenté plutôt que lu dans un rang.
+
+### Décision sur C309 : écarté, et l'argument est accablant
+
+Composition, membres triés par SASA apolaire, `*` = hors domaine III :
+
+```
+*Y292  68,8  identical     *K304  67,6  identical    *A289  65,2  different
+ R310  61,6  identical     *E306  59,2  similar      *P308  53,1  identical
+ V312  48,3  identical      K311  44,7  identical    *G288  33,8  identical
+*K303  29,0  identical     *D290  26,6  identical     C309  25,7  identical
+*G307  22,9  identical     *E293  21,7  identical     N337   9,7  different
+```
+
+Quatre des cinq membres les plus apolaires sont **hors du domaine III**. Au total **70 % de
+la SASA apolaire de C309 est portée par le domaine II et la jonction II/III** — surface dont
+l'exposition dépend de l'arrangement inter-domaines en conformation repliée, c'est-à-dire
+exactement la catégorie que le §4 déclare non fiable et qui a fait supprimer la colonne
+`face`. Son rang 2 mesure la conformation de 6ARU, pas une propriété de l'épitope.
+
+Trois défauts s'ajoutent, chacun suffisant :
+- centre sur **cystéine pontée** (C309 ↔ C329 UniProt), résidu structurellement contraint ;
+- **N337 parmi les membres à `min_glyc = 0,0`** : un séquon dans le patch ;
+- **A289 en statut `different`** au rang 3 par surface apolaire, donc l'objectif 2 est touché
+  sur l'un des membres qui portent le plus de surface.
+
+C309 est écarté. Le bug qui le masquait était réel et devait être corrigé ; le patch qu'il
+révèle n'est pas exploitable. Les deux énoncés tiennent ensemble.
+
+### Correction d'une affirmation antérieure sur N449
+
+J'avais écrit que `N473`, statut `different`, était « un des 4 plus exposés » du patch N449.
+**Faux** : il est au **rang 6 sur 13** par SASA apolaire, à 33,8 Å². La conclusion tient —
+une divergence humain/souris dans le patch pèse sur l'objectif 2 — mais l'argument est plus
+faible qu'écrit, et il ne disqualifie pas N449 à lui seul.
+
+### État des CSV après correction
+
+| | avant | après |
+|---|---|---|
+| `egfr_patches.csv` | 93 lignes, `frozenset({...})` en colonne 41 | **96 lignes**, `member_resnums_full` en entiers triés séparés par `;` |
+| `egfr_residues.csv` | 198 lignes, domaine III seul | **609 lignes**, chaîne A entière, `in_domain3` distingue |
+| jointure patches → résidus | lossy (C502 perdait 7 membres sur 17) | **complète** |
+| reproductibilité octet à octet | non (ordre d'itération de `set`) | **oui** |
