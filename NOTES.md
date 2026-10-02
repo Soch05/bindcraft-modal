@@ -1544,3 +1544,166 @@ faible qu'écrit, et il ne disqualifie pas N449 à lui seul.
 | `egfr_residues.csv` | 198 lignes, domaine III seul | **609 lignes**, chaîne A entière, `in_domain3` distingue |
 | jointure patches → résidus | lossy (C502 perdait 7 membres sur 17) | **complète** |
 | reproductibilité octet à octet | non (ordre d'itération de `set`) | **oui** |
+
+---
+
+## Accessibilité des carboxylates des ancres acides (02/10/2026) — `carboxylate_access.py`
+
+Motif : `egfr_epitope_map.py` retient une ancre acide sur `rel_sasa`, la SASA du **résidu
+entier**. Or ce qui doit être atteignable pour un pont salin His–acide, c'est le
+**carboxylate**. Un Asp au CB exposé mais aux OD1/OD2 rentrants passe le seuil `exposed` en
+étant inatteignable. Le script sépare les deux, et mesure en plus l'**orientation**.
+
+### La calibration prévue a échoué
+
+L'idée était d'étalonner sur les Asp/Glu de l'empreinte du Fab de cétuximab — des acides
+qu'une protéine vient réellement contacter. **L'empreinte n'en contient qu'un : E472.** n = 1,
+aucune distribution exploitable.
+
+C'est en soi un fait à noter : **l'épitope du cétuximab, 24 résidus, ne porte qu'un seul
+Asp/Glu.** Un binder protéique qui fonctionne sur le domaine III le fait donc sur une surface
+quasi dépourvue d'acides. C'est une mise en garde sur la stratégie d'ancrage acide, pas une
+réfutation — mais elle mérite d'être dans le dossier.
+
+### Distribution de référence, SASA du carboxylate seul
+
+| ensemble | n | min | p25 | médiane | p75 | max |
+|---|---|---|---|---|---|---|
+| chaîne A entière | 65 | 1,1 | 27,9 | 47,1 | 70,7 | 94,3 |
+| domaine III | 19 | 3,2 | 27,9 | 39,6 | 59,5 | 92,1 |
+
+**Aucun carboxylate n'a une SASA nulle** — minimum 1,1 Å² sur 65. Le critère « SASA > 0 »
+ne discrimine donc rien sur cette structure.
+
+### Les ancres mesurées
+
+`carbox` = SASA des deux oxygènes, `part` = sa fraction dans la SASA du résidu,
+`angle` = angle entre CB→carboxylate et le vecteur sortant local. Angle faible = pointe vers
+le solvant ; angle élevé = longe la surface ou rentre.
+
+| site | ancre | carbox (Å²) | CB | part | angle | centile dom. III |
+|---|---|---|---|---|---|---|
+| **G317** | **D323** | **75,0** | 16,9 | **55 %** | **33°** | **89** |
+| **G317** | **E320** | 30,0 | 25,4 | **28 %** | **103°** | 32 |
+| N449 | E472 | 47,1 | 21,7 | 46 % | 86° | 63 |
+| K375 | E400 | 72,9 | 4,8 | 76 % | 49° | 84 |
+| K375 | E397 | 36,4 | 1,2 | 78 % | 19° | 42 |
+| C502 | E530 | 82,5 | 4,8 | 86 % | 27° | 95 |
+| C502 | E510 | 64,3 | 8,5 | 78 % | 52° | 74 |
+| C502 | E489 | 27,9 | 0,0 | 44 % | 35° | 26 |
+
+### Seuil proposé, et son statut
+
+Faute d'étalon empirique, le seuil est dérivé d'un **argument géométrique**, à traiter comme
+tel — posé, non calibré.
+
+1. **Nécessaire : SASA > 0.** La sonde de Shrake-Rupley fait 1,40 Å, soit un rayon de
+   molécule d'eau : une SASA non nulle signifie qu'une eau peut s'approcher, donc qu'un
+   donneur de liaison hydrogène peut le faire. **Les 65 carboxylates passent** : non
+   discriminant ici.
+2. **Insuffisant, parce qu'un imidazole n'est pas une eau.** Le cycle His mesure environ
+   4,5 × 4,0 Å, soit une section de l'ordre de **20-25 Å²**. Pour qu'un cycle approche au
+   lieu d'une seule eau, le carboxylate doit présenter de l'ordre de sa propre section en
+   surface accessible. D'où un plancher **≥ 20-25 Å²**.
+3. **La fraction est plus comparable que l'aire absolue.** Le carboxylate d'un Glu est porté
+   plus loin du squelette que celui d'un Asp et sort donc systématiquement plus. La fraction
+   `carbox / résidu` dit si c'est le groupe fonctionnel qui est exposé ou seulement la tige :
+   **≥ 40 %** retenu.
+4. **L'orientation est le vrai discriminant ici**, et elle est sans dimension :
+   **≤ 60°** pour un carboxylate qui pointe vers le solvant, **≥ 90°** pour un qui longe la
+   surface.
+
+**Critère composite retenu pour un pont salin His–carboxylate direct :**
+`carbox >= 25 A2` **et** `part >= 40 %` **et** `angle <= 60°`.
+
+Application :
+
+| ancre | aire | fraction | angle | verdict |
+|---|---|---|---|---|
+| **D323** | 75,0 ✓ | 55 % ✓ | 33° ✓ | **ancre réelle, les trois critères** |
+| **E400** | 72,9 ✓ | 76 % ✓ | 49° ✓ | ancre réelle |
+| E510 | 64,3 ✓ | 78 % ✓ | 52° ✓ | ancre réelle, **mais hors domaine III** (510 > 506) |
+| E530 | 82,5 ✓ | 86 % ✓ | 27° ✓ | ancre réelle, **mais hors domaine III** |
+| E397 | 36,4 ✓ | 78 % ✓ | 19° ✓ | ancre réelle, aire modeste |
+| E489 | 27,9 ✓ | 44 % ✓ | 35° ✓ | ancre réelle, aire modeste |
+| E472 | 47,1 ✓ | 46 % ✓ | **86° ✗** | **douteuse** : longe la surface |
+| **E320** | 30,0 ✓ | **28 % ✗** | **103° ✗** | **nominale** : échoue sur deux des trois |
+
+### Conséquence sur le site G317
+
+**D323 est une excellente ancre** — 89e centile du domaine III, 55 % de la SASA du résidu
+portée par le carboxylate, pointant vers le solvant à 33°.
+
+**E320 est une ancre nominale.** Son aire de 30 Å² n'est pas nulle, mais seulement 28 % de la
+SASA du résidu vient du carboxylate — l'essentiel est la tige — et surtout l'angle de **103°**
+signifie que le groupe longe la surface au lieu d'en sortir. Le pipeline le comptait comme
+ancre parce que `rel_sasa` regarde le résidu entier.
+
+Le site G317 garde donc **une** ancre acide conservée réellement exploitable, pas deux. Même
+chose pour N449, dont l'unique ancre E472 est douteuse sur l'orientation (86°). K375 en garde
+**deux** (E400 et E397), ce qui en fait, sur ce seul critère, le site le mieux doté — mais ses
+autres défauts tiennent : séquons, domaine II, `dFab` 17,6 Å.
+
+### Limites de la mesure
+
+- SASA sur 6ARU, conformation **repliée**, 3,20 Å.
+- **Un seul rotamère cristallographique.** Un carboxylate peut tourner en solution ; l'angle
+  de 103° de E320 est la valeur d'un modèle, pas une contrainte permanente. C'est la limite
+  la plus sérieuse de cette analyse.
+- Le vecteur sortant est approximé par centroïde local → carboxylate, sur un voisinage de
+  12 Å. C'est un proxy, pas une normale de surface calculée.
+- Les trois seuils (25 Å², 40 %, 60°) sont **posés**, pas calibrés, faute d'étalon.
+
+---
+
+## Étendue spatiale de l'empreinte du cétuximab (02/10/2026) — `footprint_extent.py`
+
+Objet : situer l'ordre de grandeur de `PATCH_RADIUS` contre une empreinte réelle. **Lecture
+seule** — aucune constante modifiée, pipeline non relancé, aucun CSV réécrit.
+
+Mesuré sur les **24 résidus** de l'empreinte (critère `fab_footprint`, contacts lourds sous
+4,5 Å, PDB 349-473), avec les mêmes atomes d'ancrage qu'`enumerate_patches` : CB, ou CA en
+l'absence de CB.
+
+### Valeurs mesurées
+
+| grandeur | valeur |
+|---|---|
+| Diamètre de l'empreinte (distance max entre deux résidus) | **34,9 Å** — paire 350 ↔ 473 |
+| Rayon de la plus petite sphère englobante, centre libre | **17,7 Å** (diamètre 35,4 Å) |
+| **Couverture à `PATCH_RADIUS = 11 Å`** | **médiane 8/23 autres résidus**, min 2, max 14, moyenne 8,0 |
+| **Fraction médiane de l'empreinte capturée** par un patch de 11 Å | **40 %** (9 résidus sur 24, centre inclus) |
+| Rayon minimal couvrant les 24, centre contraint à être l'un d'eux | **19,1 Å** depuis le résidu 441, soit **1,7 ×** `PATCH_RADIUS` |
+
+Les cinq meilleurs centres pour une couverture totale : 441 (19,1 Å), 418 (20,4), 440 (20,6),
+417 (22,1), 438 (22,9).
+
+### Ce que dit le point 3
+
+**Un patch de 11 Å capture environ 40 % d'une empreinte réelle.** L'unité « site » du pipeline
+est donc nettement plus petite que la surface qu'une protéine occupe effectivement sur cette
+cible. Le rapport est d'environ 2,5 en nombre de résidus.
+
+La dispersion de la couverture — de 2/23 à 14/23 selon le centre choisi — est elle-même
+informative : les résidus des extrémités (350, 353, 473, à 2-3 voisins) capturent très peu,
+ceux du milieu (417, 438, 440, à 13-14) beaucoup. Combiné au fait que le diamètre (34,9 Å)
+égale pratiquement le diamètre de la sphère englobante (35,4 Å), cela décrit une empreinte
+**allongée**, dont l'extension est fixée par son axe long. Un modèle de patch sphérique en
+rend mal compte quel que soit son rayon — remarque structurale, pas une proposition.
+
+### Deux réserves, à lire avec les chiffres
+
+1. **Un Fab fait ~50 kDa sur deux chaînes et couvre une zone plus large qu'un minibinder de
+   83 aa.** Cette mesure **surestime** donc le rayon pertinent pour le cas présent. Les
+   binders visés font 55-95 résidus, soit une interface attendue plus petite que celle d'un
+   Fab, et le facteur 1,7 n'est pas transposable tel quel.
+2. **C'est un ordre de grandeur, pas une calibration.** La mesure ne distingue pas 9 Å de
+   11 Å de 13 Å : les trois donneraient une couverture partielle du même genre. Elle situe
+   l'échelle, elle ne désigne pas une valeur.
+
+### Statut de `PATCH_RADIUS`
+
+**Inchangé : 11,0 Å, POSÉ, NON CALIBRÉ.** Aucune valeur nouvelle n'est proposée. L'inventaire
+des constantes de [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §4 reste exact sur ce point,
+et cette mesure ne le modifie pas — elle ajoute seulement qu'on connaît désormais l'échelle
+d'une empreinte réelle sur cette cible, ce qui n'était pas le cas.

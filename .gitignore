@@ -8,3 +8,10 @@ __pycache__/
 # Caches réseau du script d'épitope : reproductibles depuis UniProt / RCSB
 data/*.cif
 data/*.json
+
+# Rendus binaires dérivés intégralement de egfr_patches.csv et egfr_residues.csv :
+# classeur Excel et PDF de référence des colonnes. Régénérés à la demande, les CSV
+# sont la source suivie. Le contenu du PDF est maintenu en texte dans
+# data/LECTURE.md, qui est suivi, lui.
+data/*.xlsx
+data/*.pdf
