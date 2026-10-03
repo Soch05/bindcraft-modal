@@ -2287,3 +2287,93 @@ valeur, donc `WORKERS` est désormais lu avec `os.environ.get("WORKERS") or "aut
 `region` (aucune contrainte de données), `ephemeral_disk` (les sorties vont au Volume, l'image
 porte les poids), `scaledown_window` et `buffer_containers` (sans objet pour une fonction
 one-shot).
+
+---
+
+## 3 octobre (suite 3) — revue de code : les workers ne s'écrasent pas, et quatre bugs à moi
+
+Question posée : vérifier que les workers concurrents ne s'écrasent pas, et chercher d'autres
+bugs. Résultat : le mécanisme de BindCraft est sain **et testé**, mais j'avais introduit
+quatre défauts.
+
+### Comment BindCraft écrit, et où était le risque
+
+`append_campaign_metrics` (`bindcraft/campaign_output.py`) fait un **read-modify-write du CSV
+entier** sous verrou :
+
+```
+with locked_campaign_folder(csv_path):      # fcntl.flock(fd_du_dossier, LOCK_EX)
+    relire TOUTES les lignes existantes
+    écrire tout + la nouvelle dans csv_path.partial
+    os.replace(partial, csv_path)           # renommage atomique
+```
+
+Même motif pour `.campaign_state.json` (`locked_progress`) et pour `claim_trajectory()`, qui
+sous le même verrou réserve un créneau et vérifie `accepted >= requested_designs`.
+
+**Le risque est réel si le flock ne protège pas** : deux workers relisent le même état, écrivent
+chacun leur version complète, et `os.replace` du dernier **écrase la ligne de l'autre**. Pas de
+corruption, une perte silencieuse.
+
+### Test, parce que le Volume Modal est un FUSE réseau
+
+Nouvel entrypoint `volume_concurrency_check`, CPU seul, qui lance N `subprocess` appelant la
+**vraie** fonction de BindCraft sur un CSV du Volume. 3 processus × 60 lignes :
+
+```
+lignes trouvees : 180 / 180 attendues
+  worker 0 : 60 / 60    worker 1 : 60 / 60    worker 2 : 60 / 60
+fichiers .partial residuels : aucun
+PAS D'ECRASEMENT : flock protege le read-modify-write sur ce Volume.
+```
+
+App `ap-Awmvvxza84f2fZg7xHaXca`. **Conclusion : pas d'écrasement entre workers.** C'est
+cohérent avec le mécanisme : les workers de BindCraft sont des `subprocess.Popen` d'**un seul
+conteneur** (`design_workers.py:218`), donc le flock est arbitré par le noyau sur le même
+mount, FUSE ou pas. Chaque worker a aussi son propre log, `worker_NN_gpu_N.log`.
+
+**⚠️ Ce que le test NE prouve PAS** : `flock` est local à l'hôte. Rien n'est garanti **entre
+conteneurs**. C'est une deuxième raison, de correction et plus seulement de coût, de ne pas
+sharder — et c'est ce que garde `max_containers=1`.
+
+### Mes quatre bugs
+
+**1. Cache XLA sur le Volume — retiré du chemin par défaut.** Je l'avais mis sur `/outputs`
+sans l'éprouver : système de fichiers réseau, jusqu'à 3 écrivains concurrents, et gain non
+mesuré puisque l'amont pose `JAX_PERSISTENT_CACHE_ENABLE_XLA_CACHES=none`. L'introduire dans
+le run censé *mesurer* le débit aurait ajouté une variable non contrôlée à la mesure. Devenu
+opt-in par `XLA_CACHE_ON_VOLUME=1`, à tester séparément.
+
+**2. `settings.json` écrasé en reprise — garde ajoutée.** `resume` étant à true, un rappel sur
+le même `run_name` reprend la campagne. Mais j'écrasais `settings.json` sans regarder : avec
+d'autres paramètres, le fichier ne décrivait plus le run qui avait produit les lignes déjà
+là, et les tables devenaient inexplicables. Le run **refuse** maintenant, en listant la
+dérive clé par clé. Reprise autorisée seulement à réglages identiques.
+
+**3. Commit périodique silencieux en cas d'échec.** Le thread était sans `try`, donc une
+exception le tuait en silence et on perdait les commits sans le savoir. Rattrapé et signalé.
+
+**4. Plancher de budget trompeur.** `max(300, …)` pouvait dépasser le budget demandé :
+`BUDGET_USD=0.02` donnait 36 s, remonté à 300 s, soit $0,16 réels. Le dit maintenant au lieu
+de laisser croire que le plafond est tenu.
+
+Plus un décalage mineur corrigé : `n_designs` valait 10 par défaut dans la CLI alors que la
+doc recommande 12.
+
+### Revu et jugé correct
+
+- `targets[].target_path` absolu, donc insensible au `cwd` ; `settings/` est trouvé par
+  `Path(__file__).parent.parent` et non par le `cwd`, donc l'install éditable suffit ;
+- `volume.commit()` périodique est **sûr** vis-à-vis du motif `.partial` + `os.replace` : le
+  CSV visible est toujours complet, ancienne ou nouvelle version, jamais tronqué. Un
+  `.partial` capturé dans un snapshot est inoffensif ;
+- `retries=0` : un réessai sur une fonction GPU longue doublerait la facture ;
+- `WORKERS` lu avec `or "auto"`, l'amont prévenant qu'une variable vide compte comme valeur ;
+- `BINDCRAFT_WORKER_ID`/`_COUNT`/`_BINDER_LENGTHS` ne sont jamais posées par nous — l'amont
+  prévient qu'un processus qui les porte se croit worker et ne se répartit pas.
+
+### Limite connue, assumée
+
+`max_containers=1` empêche aussi deux campagnes **différentes** de tourner en parallèle, même
+sur des dossiers disjoints. C'est volontaire : ça coûte un peu de débit et ça supprime la
+seule erreur catastrophique, deux conteneurs sur le même `project_folder` sans flock partagé.

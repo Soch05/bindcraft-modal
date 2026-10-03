@@ -40,10 +40,13 @@ répartit lui-même des workers concurrents sur l'allocation visible — voir `W
 
 from __future__ import annotations
 
+import csv
 import json
 import os
 import shlex
+import shutil
 import subprocess
+from collections import Counter
 from pathlib import Path
 
 from modal import App, Image, Volume
@@ -137,19 +140,32 @@ def budget_timeout_seconds() -> int:
             f"USD_PER_HOUR avant de lancer, sinon le budget n'est pas un plafond"
         )
     seconds = int(3600 * BUDGET_USD / (rate * GPU_COUNT))
+    if seconds < 300:
+        # Le plancher dépasserait le budget demandé : le dire plutôt que de laisser croire
+        # que $0,02 est un plafond tenu.
+        floor_cost = 300 * rate * GPU_COUNT / 3600
+        print(
+            f"⚠️  BUDGET_USD={BUDGET_USD} donnerait {seconds}s, sous le plancher de 300s. "
+            f"Le coût réel plafonnera donc vers ${floor_cost:.2f}, pas ${BUDGET_USD:.2f}."
+        )
     return max(300, min(seconds, 86400))  # plancher 5 min, plafond Modal 24 h
 
 
 DESIGN_TIMEOUT = budget_timeout_seconds()
 
-# Cache de compilation XLA. BindCraft le pose par défaut sur
-# `/tmp/bindcraft_xla_cache`, qui est ÉPHÉMÈRE : chaque conteneur Modal recompile tout.
-# Le pointer sur le Volume le rend persistant d'un appel à l'autre, ce qui compte pour une
-# architecture en appels courts — avec `length_bucket_size 32`, `[55,95]` rembourre vers 64
-# et 96, donc deux compilations par worker à chaque démarrage.
-# Gain à mesurer, pas promis : `JAX_PERSISTENT_CACHE_ENABLE_XLA_CACHES` vaut `none` par
-# défaut chez l'amont, donc tout n'est pas sérialisé.
-XLA_CACHE = f"{OUTPUTS}/.xla_cache"
+# Cache de compilation XLA. BindCraft le pose par défaut sur `/tmp/bindcraft_xla_cache`,
+# ÉPHÉMÈRE : chaque conteneur Modal recompile tout, et avec `length_bucket_size 32`,
+# `[55,95]` rembourre vers 64 et 96, donc deux compilations par worker à chaque démarrage.
+#
+# Le mettre sur le Volume le rendrait persistant d'un appel à l'autre. MAIS c'est un système
+# de fichiers réseau en FUSE avec jusqu'à 3 écrivains concurrents, et le gain n'est pas
+# mesuré — l'amont pose aussi `JAX_PERSISTENT_CACHE_ENABLE_XLA_CACHES=none`, donc tout n'est
+# pas sérialisé de toute façon. Introduire ça dans le run qui doit MESURER le débit
+# ajouterait une variable non contrôlée à la mesure.
+#
+# Donc : éteint par défaut, activable par XLA_CACHE_ON_VOLUME=1 pour le tester séparément.
+XLA_CACHE_ON_VOLUME = os.environ.get("XLA_CACHE_ON_VOLUME") == "1"
+XLA_CACHE = f"{OUTPUTS}/.xla_cache" if XLA_CACHE_ON_VOLUME else None
 
 # Fréquence des commits du Volume pendant un run. Un commit n'arrive qu'à la fin sans ça :
 # un conteneur tué dur perdrait tout depuis le début. `resume` étant à true, un commit
@@ -328,6 +344,81 @@ def selfcheck() -> None:
     print("\nBUILD VALIDE")
 
 
+# Script exécuté par chaque processus du test de concurrence. Il appelle la VRAIE fonction
+# d'écriture de BindCraft, pas une imitation : c'est ce chemin de code qu'on veut éprouver.
+_CONCURRENCY_WORKER = '''
+import sys
+from bindcraft.campaign_output import append_campaign_metrics
+csv_path, worker, rows = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+for index in range(rows):
+    append_campaign_metrics(csv_path, {"worker": worker, "index": index})
+print(f"worker {worker}: {rows} lignes ecrites", flush=True)
+'''
+
+
+@app.function(image=image, volumes={OUTPUTS: volume}, timeout=900, cpu=4.0, memory=8192)
+def volume_concurrency_check(n_processes: int = 3, rows_each: int = 60) -> None:
+    """Est-ce que des workers concurrents s'écrasent sur le Volume Modal ?
+
+    `append_campaign_metrics` fait un read-modify-write du CSV ENTIER sous
+    `fcntl.flock` : il relit toutes les lignes, réécrit tout dans un `.partial`, puis
+    `os.replace`. Si le flock ne protège pas sur un Volume monté en FUSE, deux processus
+    relisent le même état et le dernier écrase la ligne de l'autre.
+
+    Les workers de BindCraft étant des subprocess d'UN SEUL conteneur, le flock devrait
+    être arbitré par le noyau sur le même mount. Ce test le vérifie plutôt que de le
+    supposer. CPU seul, donc le coût est négligeable.
+    """
+    import tempfile
+
+    folder = Path(OUTPUTS) / ".concurrency_check"
+    if folder.exists():
+        shutil.rmtree(folder)
+    folder.mkdir(parents=True)
+    csv_path = folder / "rows.csv"
+
+    script = Path(tempfile.gettempdir()) / "_concurrency_worker.py"
+    script.write_text(_CONCURRENCY_WORKER)
+
+    expected = n_processes * rows_each
+    print(
+        f"{n_processes} processus x {rows_each} lignes sur {csv_path}\n"
+        f"attendu si flock protege : {expected} lignes",
+        flush=True,
+    )
+
+    processes = [
+        subprocess.Popen(
+            ["python", str(script), str(csv_path), str(worker), str(rows_each)],
+            cwd=BC2_ROOT,
+        )
+        for worker in range(n_processes)
+    ]
+    codes = [process.wait() for process in processes]
+    if any(codes):
+        raise RuntimeError(f"un processus a echoue : codes {codes}")
+
+    with csv_path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    per_worker = Counter(row["worker"] for row in rows)
+    leftovers = sorted(p.name for p in folder.glob("*.partial"))
+
+    print(f"\nlignes trouvees : {len(rows)} / {expected} attendues")
+    for worker in sorted(per_worker, key=lambda value: int(value)):
+        print(f"  worker {worker} : {per_worker[worker]} / {rows_each}")
+    print(f"fichiers .partial residuels : {leftovers or 'aucun'}")
+
+    volume.commit()
+
+    if len(rows) != expected:
+        raise RuntimeError(
+            f"ECRASEMENT DETECTE : {expected - len(rows)} lignes perdues. "
+            f"fcntl.flock ne protege pas sur ce Volume — il ne faut PAS faire tourner "
+            f"plusieurs workers avec project_folder sur le Volume."
+        )
+    print("\nPAS D'ECRASEMENT : flock protege le read-modify-write sur ce Volume.")
+
+
 @app.function(
     image=image,
     gpu=GPU_SPEC,
@@ -349,11 +440,30 @@ def design(run_name: str, max_trajectories: int, n_designs: int) -> None:
     settings = campaign_settings(run_name, max_trajectories, n_designs)
     folder = Path(settings["project_folder"])
     folder.mkdir(parents=True, exist_ok=True)
-    Path(XLA_CACHE).mkdir(parents=True, exist_ok=True)
 
     # Les réglages résolus sont écrits à côté des sorties : la campagne reste auditable
     # sans relire ce fichier source.
+    #
+    # ⚠️ Garde de reproductibilité. `resume` est à true, donc un rappel sur le même
+    # `run_name` REPREND la campagne. Si on le rappelait avec d'autres paramètres, ce
+    # fichier serait réécrit et ne décrirait plus le run qui a produit les lignes déjà
+    # présentes : les tables deviendraient inexplicables. On refuse plutôt que d'écraser.
     config = folder / "settings.json"
+    if config.exists():
+        previous = json.loads(config.read_text())
+        drift = {
+            key: (previous.get(key), settings.get(key))
+            for key in set(previous) | set(settings)
+            if previous.get(key) != settings.get(key)
+        }
+        if drift:
+            raise RuntimeError(
+                f"{config} existe déjà avec d'autres réglages, et `resume` reprendrait la "
+                f"campagne : les tables mélangeraient deux configurations.\n"
+                + "\n".join(f"  {key}: {was!r} -> {now!r}" for key, (was, now) in sorted(drift.items()))
+                + f"\nUtiliser un --run-name neuf, ou supprimer {folder} si la reprise est voulue."
+            )
+        print(f"reprise de {folder} avec des réglages identiques", flush=True)
     config.write_text(json.dumps(settings, indent=2))
     print(json.dumps(settings, indent=2), flush=True)
     print(
@@ -367,14 +477,24 @@ def design(run_name: str, max_trajectories: int, n_designs: int) -> None:
     done = threading.Event()
 
     def commit_loop() -> None:
+        # Une exception non rattrapée tuerait ce thread daemon en silence et on perdrait
+        # les commits périodiques sans le savoir. On la signale et on continue.
         while not done.wait(COMMIT_EVERY_S):
-            volume.commit()
-            print(f"[commit periodique] {folder}", flush=True)
+            try:
+                volume.commit()
+                print(f"[commit periodique] {folder}", flush=True)
+            except Exception as failure:  # noqa: BLE001 - on veut tout voir, pas tomber
+                print(f"[commit periodique ECHEC] {failure!r}", flush=True)
 
     committer = threading.Thread(target=commit_loop, daemon=True)
     committer.start()
 
-    environment = {**os.environ, "JAX_COMPILATION_CACHE_DIR": XLA_CACHE}
+    environment = dict(os.environ)
+    if XLA_CACHE:
+        Path(XLA_CACHE).mkdir(parents=True, exist_ok=True)
+        environment["JAX_COMPILATION_CACHE_DIR"] = XLA_CACHE
+        print(f"cache XLA sur le Volume : {XLA_CACHE} (non mesuré)", flush=True)
+
     try:
         _run(["bindcraft", "design", str(config)], cwd=BC2_ROOT, env=environment)
     finally:
@@ -385,7 +505,7 @@ def design(run_name: str, max_trajectories: int, n_designs: int) -> None:
 
 
 @app.local_entrypoint()
-def main(run_name: str, max_trajectories: int = 10, n_designs: int = 10) -> None:
+def main(run_name: str, max_trajectories: int = 10, n_designs: int = 12) -> None:
     print(
         f"GPU {GPU_SPEC} | workers_per_gpu {WORKERS} | "
         f"cpu {CPU_PER_GPU * GPU_COUNT} | ram {MEMORY_PER_GPU_MB * GPU_COUNT // 1024} Go\n"
