@@ -2684,3 +2684,142 @@ route 2 est confortable et celui de la route 1 est nul**, ce qui n'était pas me
 Le rapport `somme des temps design / temps mural` dit si la concurrence sert : 0,86× sur
 `cal01` (série, et sous 1 parce que le temps de redesign MPNN n'est pas dans `design`). Sur
 `prod01` à 2 workers, ce chiffre dira directement si la concurrence rapporte.
+
+---
+
+## 3 octobre — run `egfr-dIII-prod01` : 3 designs acceptés, et la confrontation des prédictions
+
+App `ap-PlSGxZK5vs5Eb8XqYO242N`, L40S, `--workers auto` (2 workers), 30 trajectoires,
+`BUDGET_USD=6`. Terminé sur son plafond de trajectoires, budget non atteint.
+
+### Confrontation des six prédictions
+
+| # | prédit | mesuré | verdict |
+|---|---|---|---|
+| 1 | 50–70 % de morts précoces | **77 %** (23/30) | ❌ trop bas, de peu |
+| 2 | 0–2 designs acceptés | **3** | ❌ trop bas, de peu |
+| 3 | meilleur `i_pTM` 0,68–0,72 | **0,86** | ❌ **largement trop bas** |
+| 4 | temps mural 1,0–2,0 h | **1,67 h** | ✅ |
+| 5 | coût $2–4 | **$3,26** | ✅ |
+| 6 | `Hotspot_Contact_Fraction` variera | **0,00 à 1,00** | ✅ |
+
+**3 sur 6.** Les trois ratés sont tous des sous-estimations de qualité, et tous viennent de la
+même erreur : j'ai ancré sur le squelette unique de `cal01` en le traitant comme
+représentatif. Il ne l'était pas, ni en bien ni en mal — sa médiane d'`i_pTM` à 0,635 était
+au-dessus de la médiane réelle (0,41), mais son maximum de 0,67 était très en dessous du
+maximum réel (0,86). **Un échantillon de 1 squelette ne borne rien.**
+
+### La concurrence rapporte — question tranchée
+
+```
+somme des `design` / mur = 1.89x     (2 workers, max théorique 2x)
+```
+
+Près du parfait. Donc **la carte n'est pas saturée en calcul**, et 2 workers réduisent le
+coût *et* le temps, pas seulement le temps :
+
+| | coût / trajectoire |
+|---|---|
+| `cal01`, série | $0,163 |
+| `prod01`, 2 workers | **$0,109** |
+
+Gain réel de 1,50× sur le coût. L'écart avec 1,89× vient de ce que le temps de redesign
+ProteinMPNN et de validation n'est pas dans la colonne `design`.
+
+**Corollaire** : le levier `[55,64]` → 3 workers (cf. le seau de rembourrage) vaudrait sans
+doute un gain supplémentaire réel, puisque la contention est faible. À arbitrer contre la
+diversité de longueurs.
+
+### Funnel sur 30 trajectoires
+
+| sortie | n | part |
+|---|---|---|
+| mortes au `screen` | **9** | 30 % |
+| **allées au bout** | **7** | 23 % |
+| mortes au `harden` | 4 | 13 % |
+| mortes au `final` | 4 | 13 % |
+| mortes au `refine` | 2 | 7 % |
+| mortes à l'`anneal` | 2 | 7 % |
+| mortes au `mutate` | 2 | 7 % |
+
+49 candidats repliés, **3 designs acceptés**, 6,1 % d'acceptation par candidat, 0,10 design
+par trajectoire. Le `screen` est le tueur dominant à 30 %. L'effondrement à `harden` est réel
+mais minoritaire (13 %), donc **la piste `harden_steps` est secondaire** — je l'avais
+surpondérée sur 2 observations.
+
+### LE point actionnable : `kept_sequences` jette les deux tiers du travail
+
+| | n |
+|---|---|
+| candidats passant le seuil `i_pTM` | **11 / 49** |
+| candidats marqués `ACCEPTED` dans le log | **9** |
+| **designs réellement conservés** | **3** |
+
+`kept_sequences = 1` ne garde que le meilleur candidat par trajectoire, classé sur `i_pDAE`.
+**Six candidats qui passaient tous les filtres ont été jetés**, pour du GPU déjà dépensé.
+
+**Mais le gain n'est pas gratuit en diversité** : les 3 candidats d'un même squelette sont des
+variantes de séquence de la *même pose*. Pour une soumission notée sur la nouveauté du design
+(Track 3), ce sont des frères, pas des designs indépendants. Il faut donc monter
+`kept_sequences` **et** clusteriser par squelette au moment de choisir, sans compter les
+frères comme indépendants.
+
+### Projection de coût pour 12 designs
+
+| option | coût | mur | diversité |
+|---|---|---|---|
+| A — 120 trajectoires, `kept_sequences=1` (extrapolation de BC2) | **$13,03** | 6,7 h | 12 squelettes distincts |
+| B — `kept_sequences=3` sur 30 trajectoires | $3,26 | 1,7 h | **3 squelettes**, 6 designs sur 9 sont des frères |
+| C — `kept_sequences=2` + 60 trajectoires | **$6,52** | 3,3 h | ~6 squelettes, ~12 designs |
+
+**L'option C est le bon compromis** : deux fois moins cher que A, et six squelettes distincts
+valent bien mieux que trois pour un critère de nouveauté. 3,3 h tiennent dans la marge
+(clôture dimanche 13h59).
+
+### L'écart de généralisation : pas une pénalité constante, un filtre
+
+Sur 7 squelettes, écart médian d'`i_pTM` de **0,278**, max **0,567** — bien pire que les 0,124
+de `cal01`. **Mais il est très inégal, et c'est l'information :**
+
+```
+gradient 0.88 -> validation 0.813 (n=3)   <- squelette productif, perte 0,07
+gradient 0.88 -> validation 0.847 (n=3)   <- squelette productif, perte 0,03
+gradient 0.84 -> validation 0.403 (n=10)  <- perte 0,44
+gradient 0.83 -> validation 0.263 (n=10)  <- perte 0,57
+gradient 0.71 -> validation 0.432 (n=10)  <- perte 0,28
+```
+
+**Les bons squelettes généralisent presque parfaitement ; les mauvais s'effondrent.** Ce n'est
+donc pas une pénalité à compenser en visant plus haut — c'est un **filtre qui sépare les poses
+robustes des poses sur-ajustées**. Je corrige mon affirmation de `cal01` (« il faut viser
+~0,82+ sur les modèles de design ») : les deux squelettes acceptés étaient à 0,88 et n'ont
+perdu que 0,03–0,07, alors qu'un squelette à 0,84 a perdu 0,44. **Le niveau du gradient ne
+prédit pas la survie.**
+
+Note : `n=3` sur les squelettes productifs vient de `enough_passing_sequences = 3`, qui arrête
+le tirage dès que 3 candidats passent. C'est un signe de succès, pas de pauvreté.
+
+### Les 3 designs acceptés
+
+| `i_pTM` | `i_pAE` | `pLDDT` | Interface | `Interface_BuriedArea` | Hotspots | Coldspot |
+|---|---|---|---|---|---|---|
+| 0,81–0,85 | 0,17–0,20 | 0,89–0,91 | 13–17 | 711–903 Å² | 0,25–0,50 | **0,00** |
+
+Tous très au-dessus des seuils. `Surface_Hydrophobicity` 0,21–0,33.
+
+**Le coldspot `A359` tient sur les 49 candidats** : `Coldspot_Contact_Fraction = 0,0`, min et
+max. Décision définitivement validée, et elle n'a coûté aucune acceptation.
+
+### Matière pH, sur 49 candidats
+
+| | min | médian | max |
+|---|---|---|---|
+| His par binder | 0 | **1,0** | 3 |
+| Asp+Glu par binder | 10 | **20,0** | 26 |
+
+**24 candidats sur 49 n'ont aucune histidine.** La médiane remonte à 1 (contre 0 sur les 10 de
+`cal01`), mais le constat tient : **la route pH n°1 reste indisponible pour la moitié du lot
+sans `aa_bias {"H": 2}`**, et la route n°2 a largement la matière avec 20 acides médians.
+
+Toujours non mesuré : l'appariement géométrique. C'est l'action 6 et elle attend les
+structures.

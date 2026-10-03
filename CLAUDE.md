@@ -550,11 +550,22 @@ avancer.
        `jax 0.11.2 | backend gpu | devices [CudaDevice(id=0)]`, les 7 modèles AF2 et les
        3 variantes ProteinMPNN complets, cible lue à 198 résidus. Reste non établi : la
        **structure des sorties**, qui ne se verra qu'au premier vrai run.
-2. [ ] **Re-mesurer le débit** sur `inputs/6ARU_A_309-506.pdb` avec
-       `A318,A323,A406,A409` et `binder_lengths [55,95]` : temps par trajectoire, taux
-       d'acceptation, profil de rejet par étage, coût réel. Tous les chiffres de
-       `c0a48d5` sont caducs (§3). Lancer petit — `--max-trajectories 3` — pour fixer le
-       coût par trajectoire avant d'engager un budget.
+2. [x] **Re-mesurer le débit.** FAIT, runs `cal01` (3 traj, série) et `prod01` (30 traj,
+       2 workers) du 3 octobre. **$0,109 par trajectoire** à 2 workers, contre $0,163 en
+       série : la concurrence rapporte 1,89× sur `somme(design)/mur`, donc la carte n'est
+       pas saturée. 30 trajectoires = $3,26 et 1,67 h. Funnel : 77 % de morts précoces
+       (`screen` 30 %, `harden` 13 %, `final` 13 %), 23 % vont au bout, 6,1 %
+       d'acceptation par candidat, **0,10 design par trajectoire**.
+
+       **⚠️ `kept_sequences = 1` jette les deux tiers du travail** : 11 candidats sur 49
+       passaient le seuil `i_pTM`, 9 étaient marqués `ACCEPTED`, et **3 seulement ont été
+       conservés**. Monter ce réglage est le levier de rendement le moins cher du pipeline —
+       mais les candidats d'un même squelette sont des **frères**, donc clusteriser par
+       squelette avant de compter des designs indépendants.
+
+       **Projection pour 12 designs** : 120 trajectoires à $13,03 (12 squelettes), ou
+       `kept_sequences=2` + 60 trajectoires à **$6,52** (~6 squelettes, ~12 designs). La
+       seconde est le bon compromis coût/nouveauté.
 3. [x] ~~Vérifier si un kill par `TIMEOUT` commite le volume.~~ **Sans objet** : `TIMEOUT`
        n'existe pas dans 2.0, et `resume` est à `true` par défaut (§2). L'architecture en
        appels courts est sûre par construction. $0,20 économisés.
