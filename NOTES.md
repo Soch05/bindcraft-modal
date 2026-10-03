@@ -2199,3 +2199,91 @@ Note sur la compilation : `length_bucket_size` vaut 32, donc `[55, 95]` rembourr
 96, soit **deux seaux** et deux compilations par worker. Avec 3 workers et
 `worker_launch_stagger` à 0, le démarrage concentre jusqu'à 6 compilations. À surveiller
 dans le log avant d'incriminer le débit.
+
+---
+
+## 3 octobre (suite 2) — paramètres Modal : ce qui manquait réellement
+
+Question reprécisée : la parallélisation **côté Modal**. Réponse : un seul `.remote()`, un
+seul conteneur, et c'est volontaire (une campagne = un état, cf. entrée précédente). Mais en
+auditant les paramètres Modal non définis, cinq manquaient, dont deux graves.
+
+### 1. `memory` — le plus grave, il annulait les 3 workers
+
+BindCraft plafonne ses workers **deux fois**, et je n'avais vu que la première. Après le
+plafond mémoire GPU, `design_workers.py` applique :
+
+```
+host_memory_worker_ceiling = (MemAvailable_Go // HOST_MEMORY_PER_WORKER_GB) // n_gpu
+                           = (MemAvailable_Go // 4,0) // n_gpu
+```
+
+lu sur `/proc/meminfo`. Donc sous **12 Go** de RAM disponible on retombe à 2 workers, sous
+8 Go à 1 — et les 3 workers calculés sur la mémoire GPU seraient perdus **en silence**. La
+RAM par défaut d'un conteneur Modal n'était pas définie dans l'entrypoint.
+
+Fixé à **24 Go et 4 cœurs par GPU**, qui est la taille que le script Slurm de l'amont se
+donne lui-même (`docs/source/installation.md`) — chiffre sourcé, pas posé. Vérifié :
+`24 // 4 = 6` de plafond hôte, donc c'est bien la mémoire GPU qui décide avec 3.
+
+### 2. `timeout` — il n'y avait pas de plafond de budget
+
+`timeout=86400` était le maximum de Modal, soit **$47** sur une L40S à $1,95/h et **$187**
+sur quatre. La règle du dépôt interdit de lancer un run GPU sans plafond de budget, et
+`max_trajectories` ne protège pas d'un run bloqué. Le timeout est le seul vrai plafond.
+
+Remplacé par une dérivation depuis un budget en dollars :
+
+```
+timeout = 3600 × BUDGET_USD / (USD_PER_HOUR[GPU] × GPU_COUNT)
+```
+
+| `BUDGET_USD` | `GPU_COUNT` | timeout | coût max |
+|---|---|---|---|
+| 1 | 1 | 1846 s = 0,51 h | $1,00 |
+| 5 | 1 | 9230 s = 2,56 h | $5,00 |
+| 5 | 4 | 2307 s = 0,64 h | $5,00 |
+| 20 | 1 | 36923 s = 10,26 h | $20,00 |
+
+Défaut `BUDGET_USD=5`. Le coût plafonne au budget quel que soit le nombre de cartes, ce qui
+est exactement le comportement voulu. Et un `GPU` dont le tarif n'est pas dans `USD_PER_HOUR`
+**fait échouer le chargement du module** au lieu de lancer un run non plafonné — testé avec
+`GPU=H100`.
+
+### 3. Commits du Volume — un seul, à la fin
+
+`volume.commit()` n'était appelé qu'en `finally`. Un conteneur tué dur (préemption, OOM)
+perdait tout le run. Ajout d'un thread de commit toutes les **300 s**. `resume` étant à true,
+un redémarrage repart alors du dernier commit au lieu de zéro.
+
+### 4. Cache de compilation XLA — éphémère
+
+`bindcraft/__init__.py` pose `JAX_COMPILATION_CACHE_DIR` par défaut sur
+`/tmp/bindcraft_xla_cache`, **éphémère par conteneur** : chaque appel Modal recompile tout.
+Pointé sur `/outputs/.xla_cache`, donc persistant d'un appel à l'autre. Ça compte parce que
+`length_bucket_size 32` rembourre `[55,95]` vers 64 et 96 — deux compilations par worker à
+chaque démarrage, jusqu'à 6 avec 3 workers.
+
+**Gain à mesurer, pas promis** : l'amont pose aussi
+`JAX_PERSISTENT_CACHE_ENABLE_XLA_CACHES=none`, donc tout n'est pas sérialisé.
+
+### 5. `retries` et `max_containers`
+
+`retries=0` explicite — un réessai sur une fonction GPU de plusieurs heures doublerait la
+facture en silence (le défaut Modal est déjà 0, mais l'écrire est la règle).
+`max_containers=1` — garde contre un fan-out accidentel, puisque par construction une
+campagne ne doit occuper qu'un conteneur.
+
+### Piège de l'amont à ne pas déclencher
+
+`BINDCRAFT_WORKER_ID`, `BINDCRAFT_WORKER_COUNT` et `BINDCRAFT_BINDER_LENGTHS` sont posées
+**par** la campagne pour chaque worker. L'amont prévient : « ne les définissez pas ; un
+processus qui porte `BINDCRAFT_WORKER_ID` se croit worker et ne se répartira pas. » On ne
+les touche pas. Autre piège associé : une variable exportée mais **vide** compte comme une
+valeur, donc `WORKERS` est désormais lu avec `os.environ.get("WORKERS") or "auto"`.
+
+### Reste non défini volontairement
+
+`region` (aucune contrainte de données), `ephemeral_disk` (les sorties vont au Volume, l'image
+porte les poids), `scaledown_window` et `buffer_containers` (sans objet pour une fonction
+one-shot).

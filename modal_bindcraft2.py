@@ -84,7 +84,10 @@ GPU_COUNT = int(os.environ.get("GPU_COUNT", 1))
 # temps. Le temps mural vaut alors une trajectoire plus la compilation, et on ne peut PAS
 # en déduire un temps par trajectoire. Mettre WORKERS=1 pour calibrer, laisser `auto` pour
 # produire.
-WORKERS = os.environ.get("WORKERS", "auto")
+# Une variable exportée mais vide compte comme une valeur chez BindCraft — l'amont prévient
+# que `BINDCRAFT_WORKERS_PER_GPU=` échoue sur la chaîne vide au lieu de retomber au défaut.
+# On traite donc le vide comme non défini.
+WORKERS = os.environ.get("WORKERS") or "auto"
 
 # Installation éditable à cette racine : `settings/` et `scaffolds/` vivent à la racine du
 # dépôt et non dans le paquet, et le runtime les trouve relativement à lui. Une install
@@ -100,6 +103,58 @@ OUTPUTS = "/outputs"
 
 # Modal attend "L40S" pour une carte, "L40S:4" pour quatre dans le même conteneur.
 GPU_SPEC = GPU if GPU_COUNT == 1 else f"{GPU}:{GPU_COUNT}"
+
+# ----------------------------------------------------------------------------------------
+# Ressources du conteneur Modal. CE BLOC EST UN PLAFOND DE DÉPENSE, pas de la décoration.
+# ----------------------------------------------------------------------------------------
+
+# 4 cœurs et 24 Go par GPU : c'est la taille que le script Slurm de l'amont se donne
+# lui-même (docs/source/installation.md). Ce n'est pas un chiffre posé.
+#
+# ⚠️ POURQUOI LA RAM COMPTE : BindCraft plafonne ses workers DEUX FOIS, pas une. Après le
+# plafond mémoire GPU (3 workers ici), il applique dans `design_workers.py` :
+#     host_memory_worker_ceiling = (MemAvailable_Go // 4,0) // n_gpu
+# Lu sur /proc/meminfo. Sous 12 Go de RAM disponible, on retombe à 2 workers ; sous 8 Go, à
+# 1 — et les 3 workers calculés sur la mémoire GPU seraient perdus en silence. 24 Go donnent
+# un plafond hôte de 6, donc c'est bien la mémoire GPU qui décide, ce qu'on veut.
+CPU_PER_GPU = 4.0
+MEMORY_PER_GPU_MB = 24 * 1024
+
+# Tarif L40S mesuré : $0,000542/s = $1,95/h. Le `timeout` Modal est le SEUL vrai plafond de
+# dépense — `max_trajectories` ne protège pas d'un run bloqué. On le dérive donc d'un budget
+# en dollars au lieu de le laisser au maximum de 24 h, qui vaudrait $47 sur une carte et
+# $187 sur quatre.
+USD_PER_HOUR = {"L40S": 1.95}
+BUDGET_USD = float(os.environ.get("BUDGET_USD", 5.0))
+
+
+def budget_timeout_seconds() -> int:
+    """Convertit un budget en dollars en secondes de `timeout` Modal."""
+    rate = USD_PER_HOUR.get(GPU)
+    if rate is None:
+        raise ValueError(
+            f"tarif horaire inconnu pour GPU={GPU} : ajouter la valeur mesurée dans "
+            f"USD_PER_HOUR avant de lancer, sinon le budget n'est pas un plafond"
+        )
+    seconds = int(3600 * BUDGET_USD / (rate * GPU_COUNT))
+    return max(300, min(seconds, 86400))  # plancher 5 min, plafond Modal 24 h
+
+
+DESIGN_TIMEOUT = budget_timeout_seconds()
+
+# Cache de compilation XLA. BindCraft le pose par défaut sur
+# `/tmp/bindcraft_xla_cache`, qui est ÉPHÉMÈRE : chaque conteneur Modal recompile tout.
+# Le pointer sur le Volume le rend persistant d'un appel à l'autre, ce qui compte pour une
+# architecture en appels courts — avec `length_bucket_size 32`, `[55,95]` rembourre vers 64
+# et 96, donc deux compilations par worker à chaque démarrage.
+# Gain à mesurer, pas promis : `JAX_PERSISTENT_CACHE_ENABLE_XLA_CACHES` vaut `none` par
+# défaut chez l'amont, donc tout n'est pas sérialisé.
+XLA_CACHE = f"{OUTPUTS}/.xla_cache"
+
+# Fréquence des commits du Volume pendant un run. Un commit n'arrive qu'à la fin sans ça :
+# un conteneur tué dur perdrait tout depuis le début. `resume` étant à true, un commit
+# régulier rend un redémarrage presque gratuit.
+COMMIT_EVERY_S = 300
 
 # ----------------------------------------------------------------------------------------
 # La cible et les biais de ciblage. Numérotation PDB, celle du fichier cible.
@@ -225,9 +280,9 @@ def campaign_settings(run_name: str, max_trajectories: int, n_designs: int) -> d
     }
 
 
-def _run(command: list[str], cwd: str | None = None) -> None:
+def _run(command: list[str], cwd: str | None = None, env: dict | None = None) -> None:
     print(f"$ {shlex.join(command)}", flush=True)
-    subprocess.run(command, cwd=cwd, check=True)
+    subprocess.run(command, cwd=cwd, env=env, check=True)
 
 
 # ----------------------------------------------------------------------------------------
@@ -273,24 +328,58 @@ def selfcheck() -> None:
     print("\nBUILD VALIDE")
 
 
-@app.function(image=image, gpu=GPU_SPEC, volumes={OUTPUTS: volume}, timeout=86400)
+@app.function(
+    image=image,
+    gpu=GPU_SPEC,
+    volumes={OUTPUTS: volume},
+    # Dérivé de BUDGET_USD : c'est le vrai plafond de dépense.
+    timeout=DESIGN_TIMEOUT,
+    cpu=CPU_PER_GPU * GPU_COUNT,
+    memory=MEMORY_PER_GPU_MB * GPU_COUNT,
+    # Un réessai sur une fonction GPU de plusieurs heures doublerait la facture en silence.
+    retries=0,
+    # Une seule campagne, un seul conteneur. Garde contre un fan-out accidentel.
+    max_containers=1,
+)
 def design(run_name: str, max_trajectories: int, n_designs: int) -> None:
     """Lance une campagne. `resume` est à true par défaut dans BindCraft 2.0, donc un
     rappel sur le même `run_name` reprend là où le précédent s'est arrêté."""
+    import threading
+
     settings = campaign_settings(run_name, max_trajectories, n_designs)
     folder = Path(settings["project_folder"])
     folder.mkdir(parents=True, exist_ok=True)
+    Path(XLA_CACHE).mkdir(parents=True, exist_ok=True)
 
     # Les réglages résolus sont écrits à côté des sorties : la campagne reste auditable
     # sans relire ce fichier source.
     config = folder / "settings.json"
     config.write_text(json.dumps(settings, indent=2))
     print(json.dumps(settings, indent=2), flush=True)
+    print(
+        f"budget ${BUDGET_USD:.2f} → timeout {DESIGN_TIMEOUT}s "
+        f"({DESIGN_TIMEOUT / 3600:.2f} h) sur {GPU_SPEC}",
+        flush=True,
+    )
     volume.commit()
 
+    # Commits périodiques : sans eux, un conteneur tué dur perdrait tout le run.
+    done = threading.Event()
+
+    def commit_loop() -> None:
+        while not done.wait(COMMIT_EVERY_S):
+            volume.commit()
+            print(f"[commit periodique] {folder}", flush=True)
+
+    committer = threading.Thread(target=commit_loop, daemon=True)
+    committer.start()
+
+    environment = {**os.environ, "JAX_COMPILATION_CACHE_DIR": XLA_CACHE}
     try:
-        _run(["bindcraft", "design", str(config)], cwd=BC2_ROOT)
+        _run(["bindcraft", "design", str(config)], cwd=BC2_ROOT, env=environment)
     finally:
+        done.set()
+        committer.join(timeout=30)
         volume.commit()
         print(f"volume commité : {folder}", flush=True)
 
@@ -298,8 +387,11 @@ def design(run_name: str, max_trajectories: int, n_designs: int) -> None:
 @app.local_entrypoint()
 def main(run_name: str, max_trajectories: int = 10, n_designs: int = 10) -> None:
     print(
-        f"GPU {GPU_SPEC} | workers_per_gpu {WORKERS} | run {run_name} | "
-        f"max_trajectories {max_trajectories} | n_designs {n_designs}"
+        f"GPU {GPU_SPEC} | workers_per_gpu {WORKERS} | "
+        f"cpu {CPU_PER_GPU * GPU_COUNT} | ram {MEMORY_PER_GPU_MB * GPU_COUNT // 1024} Go\n"
+        f"run {run_name} | max_trajectories {max_trajectories} | n_designs {n_designs}\n"
+        f"budget ${BUDGET_USD:.2f} → timeout {DESIGN_TIMEOUT}s "
+        f"({DESIGN_TIMEOUT / 3600:.2f} h) — c'est le plafond de dépense"
     )
     if WORKERS == "auto" and max_trajectories <= 4:
         print(
