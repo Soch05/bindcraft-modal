@@ -2591,3 +2591,43 @@ La prédiction 4 est la seule qui mesure quelque chose de neuf sur Modal : **est
 3 workers sur une carte réduisent le coût, ou seulement le temps mural ?** Les temps `design`
 par trajectoire sont directement comparables à la série de `cal01` (430,5 / 239,3 / 101,5 s).
 S'ils sont inchangés, la concurrence est un gain net. S'ils triplent, elle ne rapporte rien.
+
+---
+
+## 3 octobre — correction : 2 workers et non 3, j'avais oublié le rembourrage
+
+Observé au démarrage de `prod01`, avant tout résultat :
+
+```
+worker=0 gpu=0 draws 31 binder lengths from 65 to 95, folded at 320 padded residues at 14.6 GB
+worker=1 gpu=0 draws 10 binder lengths from 55 to 64, folded at 288 padded residues at 13.1 GB
+```
+
+**Deux workers, pas trois.** J'avais annoncé 3 dans CLAUDE.md, dans le code et dans trois
+messages de commit. L'erreur : j'ai calculé `estimate_design_memory_gb` sur le nombre de
+résidus **brut** alors que BindCraft le calcule sur le nombre **rembourré**.
+`length_bucket_size = 32` arrondit (cible + binder) au multiple de 32 supérieur.
+
+| binder | bruts (198 + b) | rembourré | Go/worker calculé | Go annoncé par BC2 |
+|---|---|---|---|---|
+| 55–64 | 253–262 | **288** | **13,10** | 13.1 |
+| 65–95 | 263–293 | **320** | **14,58** | 14.6 |
+
+Mes valeurs recalculées tombent exactement sur celles du log, donc l'explication est
+certaine. `(45 − 4) // 14,58 = 2`.
+
+**Conséquences :**
+
+- la concurrence rapporte au mieux **2×**, pas 3×. La prédiction n°4 du run (temps mural
+  1,0–2,0 h) était fondée sur 3× et est donc probablement trop optimiste — à confronter ;
+- **nouveau levier de débit** : la plage de longueurs pilote le nombre de workers par le seau
+  de rembourrage. `[55, 95]` donne 2 workers ; `[55, 64]` tiendrait dans le seul seau de 288
+  et en donnerait 3. Gain de 50 % de débit contre un resserrement de la diversité de
+  longueurs. À arbitrer, pas à appliquer en aveugle ;
+- **biais à surveiller dans le lot final** : le partage est inégal — worker 0 tire 31
+  longueurs (65–95), worker 1 seulement 10 (55–64) mais dans le seau plus rapide. L'amont
+  prévient que « les groupes de longueurs plus rapides peuvent apparaître plus souvent dans
+  les résultats ». La distribution de longueurs du lot sera donc biaisée, et il faut la
+  regarder avant de clusteriser les 12 places.
+
+Les logs par worker sont sur le Volume : `egfr-dIII-prod01/workers/worker_NN_gpu_N.log`.

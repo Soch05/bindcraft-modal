@@ -98,10 +98,22 @@ GPU_COUNT = int(os.environ.get("GPU_COUNT", 1))
 # `bindcraft/design_workers.py` :
 #     mem_par_worker = 2.0 × (3.4 + 38000 × n_residus² / 1e9)
 #     workers        = (libre_Go − 4) // mem_par_worker
-# Calculé le 3 octobre pour notre cible (198 résidus) sur une L40S de 46 Go :
-#     binder 55 → 253 résidus → 11,66 Go/worker → 3 workers
-#     binder 95 → 293 résidus → 13,32 Go/worker → 3 workers
-# On ne tombe à 1 worker que vers 430 résidus au total.
+#
+# ⚠️ `n_residus` est le total REMBOURRÉ, pas le brut. `length_bucket_size = 32` arrondit
+# (cible + binder) au multiple de 32 supérieur. C'est l'erreur que j'avais faite le
+# 3 octobre : j'avais calculé sur 253–293 résidus bruts et annoncé 3 workers, alors que
+# BindCraft calcule sur 288–320 rembourrés et en lance 2. Vérifié contre le log du run
+# `prod01`, qui annonce 13.1 et 14.6 Go — exactement les valeurs rembourrées.
+#
+# Pour notre cible (198 résidus) sur une L40S de 46 Go, binder 55–95 :
+#     binder 55–64 → 253–262 bruts → rembourré à 288 → 13,10 Go
+#     binder 65–95 → 263–293 bruts → rembourré à 320 → 14,58 Go
+#     workers = (45 − 4) // 14,58 = 2
+#
+# CONSÉQUENCE SUR LE DÉBIT : la plage de longueurs pilote le nombre de workers par le
+# seau de rembourrage. `[55, 95]` donne 2 workers ; `[55, 64]` tiendrait dans le seul seau
+# de 288 et en donnerait 3. C'est un levier de débit gratuit, à arbitrer contre la
+# diversité de longueurs qu'on veut dans la soumission.
 
 # Installation éditable à cette racine : `settings/` et `scaffolds/` vivent à la racine du
 # dépôt et non dans le paquet, et le runtime les trouve relativement à lui. Une install

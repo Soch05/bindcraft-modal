@@ -201,11 +201,32 @@ Volume `bindcraft` monté sur `/outputs`, un répertoire par `run_name`. GPU par
 **$0,000542/s = $1,95/h**.
 
 **Parallélisation : pas de sharding, BindCraft 2.0 le fait lui-même.** `workers_per_gpu` vaut
-`auto`, ce qui donne **3 workers concurrents** sur une L40S pour notre cible — calculé le
-3 octobre sur la formule de `bindcraft/design_workers.py`, 11,7 à 13,4 Go par worker pour
-253–293 résidus. Deux variables dans `modal_bindcraft2.py` : `WORKERS` (→ `workers_per_gpu`,
-mettre `1` pour mesurer un temps par trajectoire) et `GPU_COUNT` (→ `gpu="L40S:N"`, N cartes
-dans **un** conteneur, `auto_multi_gpu` répartissant seul).
+`auto`, ce qui donne **2 workers concurrents** sur une L40S pour notre cible — **observé** dans
+le log du run `prod01`, qui annonce 13,1 et 14,6 Go par worker.
+
+⚠️ **Correction du 3 octobre** : j'avais annoncé 3 workers, calculés sur le nombre de résidus
+**brut** (253–293). `length_bucket_size = 32` arrondit (cible + binder) au multiple de 32
+supérieur, donc le calcul porte sur **288–320 rembourrés** :
+
+| binder | bruts | rembourré | Go/worker |
+|---|---|---|---|
+| 55–64 | 253–262 | **288** | 13,10 |
+| 65–95 | 263–293 | **320** | 14,58 |
+
+`(45 − 4) // 14,58 = 2`. **La concurrence rapporte donc au mieux 2×, pas 3×.**
+
+**Levier de débit qui en découle** : la plage de longueurs pilote le nombre de workers par le
+seau de rembourrage. `[55, 95]` donne 2 workers ; `[55, 64]` tiendrait dans le seul seau de
+288 et en donnerait 3. À arbitrer contre la diversité de longueurs voulue dans la soumission.
+
+Le partage des longueurs entre workers est **inégal** : sur `prod01`, worker 0 tire 31
+longueurs (65–95) et worker 1 seulement 10 (55–64), mais dans un seau plus rapide. L'amont
+prévient que « les groupes de longueurs plus rapides peuvent apparaître plus souvent dans les
+résultats » — à surveiller dans la distribution de longueurs du lot final.
+
+Deux variables dans `modal_bindcraft2.py` : `--workers` (→ `workers_per_gpu`, mettre `1` pour
+mesurer un temps par trajectoire) et `GPU_COUNT` (→ `gpu="L40S:N"`, N cartes dans **un**
+conteneur, `auto_multi_gpu` répartissant seul).
 
 **⚠️ Ne pas restaurer le sharding de BindCraft 1** (`shard-000`, `shard-001`…) : sur 2.0
 chaque shard serait une campagne indépendante chassant son propre
