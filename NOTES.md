@@ -1707,3 +1707,215 @@ rend mal compte quel que soit son rayon — remarque structurale, pas une propos
 des constantes de [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §4 reste exact sur ce point,
 et cette mesure ne le modifie pas — elle ajoute seulement qu'on connaît désormais l'échelle
 d'une empreinte réelle sur cette cible, ce qui n'était pas le cas.
+
+---
+
+## Trois éliminations à l'intérieur du site de référence (02/10/2026)
+
+Lecture seule sur `data/egfr_patches.csv` et `data/egfr_residues.csv`. Déclenché par une
+question simple — « en quoi T358 est-il mauvais ? » — dont la réponse élimine trois choses.
+
+### Élimination 1 — l'écart de rang entre G317 et T358 n'a plus de fondement
+
+T358 sort 6ᵉ sur 7 du site de référence uniquement parce que la clé de tri compte
+`n_acidic_cons` d'abord : 1 pour T358 contre 2 pour G317.
+
+Mais **l'unique ancre conservée de T358 est D323** — exactement celle de G317. Les deux
+patches la partagent, avec L325.
+
+| | ancres annoncées | ancres **réelles** (critère carboxylate) |
+|---|---|---|
+| G317 | E320 + D323 | **D323** |
+| T358 | D323 | **D323** |
+
+La seconde ancre de G317, E320, a été mesurée **nominale** : 28 % de part, angle 103°. Donc
+**les deux patches ont la même et unique ancre pH réelle, la même molécule.** L'écart 2 contre
+1 qui place l'un au rang 1 et l'autre au rang 6 repose entièrement sur un résidu dont le
+carboxylate ne sort pas.
+
+Ce qui reste comme différence réelle entre eux n'est pas l'objectif 1 mais l'arbitrage
+objectif 2 contre objectif 3.
+
+### Élimination 2 — H359 est éliminé comme cible de contact
+
+T358 a 42 % plus de surface apolaire que G317 (627 contre 441 Å²). Mais :
+
+| | apolaire | membres |
+|---|---|---|
+| T358 complet | 627 Å² | 8 |
+| **T358 sans H359** | **529 Å²** | 7 |
+| G317 | 441 Å² | 9 |
+
+**H359 porte 97,8 Å², soit 16 % de la surface apolaire de T358**, et c'est son 3ᵉ membre le
+plus exposé — donc très probablement contacté. Or c'est précisément lui qui diverge :
+**His chez l'humain, Arg chez la souris.**
+
+La substitution n'est pas conservative : elle remplace un résidu titrable par un résidu
+définitivement chargé positif. Un contact construit sur H359 ne se retrouve pas sur la
+protéine murine. **C'est le mode de défaillance de l'objectif 2**, et l'objectif 2 est classé
+au-dessus de l'objectif 3.
+
+Conséquence chiffrée : **l'avantage de surface de T358 passe de +42 % à +20 %** une fois H359
+défalqué. Il survit, mais il est deux fois moins grand que la colonne brute ne le suggère.
+H359 est à exclure de tout jeu de hotspots.
+
+**Note annexe, à traiter comme hypothèse** : H359 est une histidine **de la cible**, à
+l'interface, donc titrable dans la fenêtre 6,5-7,4. C'est une route pH alternative à celle de
+CLAUDE.md §7, qui suppose l'His portée par le binder. Mais elle est **absente chez la souris**
+(Arg), donc l'exploiter échangerait l'objectif 2 contre l'objectif 1. Non retenue, consignée.
+
+### Élimination 3 — « G317 ou T358 » est une fausse alternative
+
+| | |
+|---|---|
+| recouvrement T358 / G317 | **25 %** — partagent D323 et L325 |
+| union | **15 membres**, **926 Å²** apolaires |
+| identité de l'union | **14/15 = 0,93** |
+| ancres conservées de l'union | **E320 et D323** |
+| diamètre de l'union | **28,9 Å** |
+
+Les deux sont **deux patches du même site**, tous deux dans le groupe de référence de
+7 patches. Choisir l'un contre l'autre revient à choisir où centrer les hotspots à l'intérieur
+d'un site, pas à choisir entre deux sites. La question était mal posée, la mienne comprise.
+
+L'union est géométriquement viable : **28,9 Å de diamètre, soit 83 % de l'étendue mesurée de
+l'empreinte du cétuximab** (34,9 Å). Le run de fumée a produit des dSASA de ~1900 Å², donc
+l'ordre de grandeur n'est pas absurde.
+
+### Ce que ça fait apparaître : F357
+
+Meilleurs candidats apolaires de l'union, par SASA apolaire :
+
+| résidu | apolaire | statut | glycane |
+|---|---|---|---|
+| **F357** | **155,8** | identical | 11,8 |
+| **L325** | 111,1 | identical | 7,3 |
+| ~~H359~~ | 97,8 | **different → R** | 10,8 |
+| **I318** | 83,3 | identical | 15,0 |
+| P361 | 71,3 | identical | 8,5 |
+| K322 | 70,0 | identical | 13,6 |
+| T406 | 66,4 | identical | 19,9 |
+| T358 | 56,8 | identical | 7,8 |
+
+**F357 est le résidu le plus apolaire de tout le site de référence** — 155,8 Å², soit plus de
+trois fois E320 — `identical`, à 11,8 Å d'un séquon. **Il n'était dans aucun des jeux de
+hotspots discutés jusqu'ici**, parce qu'il appartient au patch T358 et pas au patch G317.
+C'est l'oubli que ces trois éliminations mettent au jour.
+
+Jeu de hotspots que cela suggère : `A323,A325,A357,A318` — l'ancre réelle, les deux plus gros
+apolaires conservés, et un quatrième solide, **en évitant H359**.
+
+**Non vérifié, et bloquant avant de l'adopter** : que ces quatre résidus pointent vers la même
+face. À 28,9 Å d'étendue, l'union est proche de la limite de ce qu'un binder de 83 aa peut
+enfouir, et rien ne garantit qu'un seul binder atteigne les quatre. Se tranche dans PyMOL, ou
+par deux runs courts comparés — ce qui reste de toute façon le seul moyen de départager deux
+jeux de hotspots.
+
+**Aucun hotspot n'est changé, aucune constante n'est touchée, le jeu en vigueur reste
+`A318,A320,A323,A325`.**
+
+---
+
+## Jeu de hotspots retenu (03/10/2026)
+
+**`A318,A323,A325,A406,A409`** — décision prise, motifs ci-dessous.
+
+### Le critère qui manquait : l'étendue
+
+Aucune des analyses précédentes n'avait vérifié qu'un jeu de hotspots soit atteignable par
+**un seul** binder. Ni les miennes, ni celles proposées par ailleurs. C'est le contrôle qui a
+tranché.
+
+Mesuré sur 6ARU chaîne A, distances **CA**, après vérification que la chaîne existe
+(4727 atomes, objet contenant A, B, C, D, E) et que chaque résidu porte exactement un CA —
+une sélection vide ne lève aucune erreur et donnerait silencieusement une valeur fausse.
+
+```
+          318     323     406     409
+318      0,00    7,68   12,25   16,52
+323      7,68    0,00   16,61   16,73
+406     12,25   16,61    0,00    9,05
+409     16,52   16,73    9,05    0,00
+```
+
+Recoupé entre **PyMOL 3 headless** (`cmd.get_distance` sur `chain A and resi N and name CA`)
+et **Biopython** via `hotspot_distances.py` : accord exact à 0,1 Å près. L'écart aurait
+signalé un problème de lecture de la numérotation auteur du mmCIF.
+
+### Trois faits que la mesure établit
+
+**1. Retirer `A318` ne gagne aucun angström.** L'étendue maximale est de **16,73 Å dans les
+deux cas**, fixée par 323↔409 qui survit au retrait. Un jeu à 3 perdrait les 83,3 Å²
+apolaires de I318 pour zéro gain géométrique. La règle de décision posée — seuil à 24 Å sur
+318↔409, mesuré à 16,52 — était satisfaite, mais la vraie raison est plus forte : le
+troisième résidu est gratuit.
+
+**2. `A325` s'ajoute aussi sans coût géométrique.** L325↔409 = 14,7 Å, donc le jeu à 5 garde
+une étendue de **16,73 Å inchangée** et gagne 111,1 Å² apolaires.
+
+**3. `F357` est exclu, et c'est l'arbitrage de fond.** F357↔409 = **24,0 Å**, F357↔406 =
+27,1 Å : l'ajouter porterait l'étendue à 27,1 Å. **F357 et H409 sont mutuellement
+exclusifs.** Le choix est donc entre les 155,8 Å² de F357 — la meilleure ancre apolaire de la
+carte — et la His conservée H409 avec sa sécurité glycane. **H409 retenu, parce que
+l'objectif 1 est classé avant l'objectif 3.**
+
+### Le bon décompte de la surface d'empilement
+
+Compter la SASA apolaire de tous les membres du jeu surévalue ce qu'un binder empile : D323
+est là pour son carboxylate, pas pour ses 30 Å² de tige. Décomposition par rôle :
+
+| rôle | résidus | surface d'empilement |
+|---|---|---|
+| ancres apolaires pures | I318 (83,3) + T406 (66,4) + **L325 (111,1)** | **261 Å²** |
+| double usage | H409, cycle imidazole | +82 Å² |
+| fonction pure | D323 — valeur = carboxylate 75,0 Å² | — |
+
+**L'ajout de L325 fait donc passer la surface d'empilement garantie de 150 à 261 Å², soit
++74 %** — et non +42 % comme le suggérait le total brut de tous les membres. C'est ce
+recadrage qui a emporté la décision.
+
+Décomposition atomique de H409, pour justifier le « double usage » : sur ses 82,1 Å² de
+carbone, **44,7 Å² viennent du seul CE1**, le carbone du cycle imidazole entre les deux
+azotes, plus CD2 (7,2) et CG (4,8). C'est un cycle aromatique exposé, il empile réellement.
+Et ses azotes ND1 (20,8 Å²) et NE2 (13,1 Å²) portent le mécanisme pH. Les deux rôles sont
+réels et simultanés.
+
+### Fiche du jeu retenu
+
+| | |
+|---|---|
+| étendue CA | **16,73 Å** — la plus compacte de tous les jeux examinés |
+| identité humain/souris | **5/5** |
+| surface d'empilement | 261 Å² garantis, ~343 avec le cycle de H409 |
+| ancre pH acide | **D323** — carboxylate 75,0 Å², part 0,55, angle 33°, 89ᵉ centile du domaine |
+| His conservée de la cible | **H409** — mécanisme inversé : un Asp sur le binder |
+| glycane | min **7,3** (L325), médian 15,0 |
+| dFab | min **0,0** (H409) — sur la surface ligand-compétitive |
+
+Composition : I318 (83,3 apol / glyc 15,0), D323 (30,2 / 12,1), L325 (111,1 / 7,3),
+T406 (66,4 / 19,9), H409 (82,1 / 21,1). Les cinq `identical`.
+
+### Pourquoi ce jeu et pas mes deux zones
+
+C'est un **hybride** que je n'avais pas proposé : I318 et D323 viennent de la zone A,
+T406 et H409 de la zone B, et **T406 est la charnière** qui les relie. Il est plus compact
+que la zone A (16,7 contre 19,8 Å) et c'est **le seul jeu examiné qui porte les deux
+mécanismes pH** — l'acide pour une His du binder, et la His conservée pour un Asp du binder.
+
+### Réserves
+
+- **Le glycane de L325 à 7,3 Å est le seul vrai risque du jeu.** Les quatre autres résidus
+  sont entre 12,1 et 21,1 Å d'un séquon. Et `min_glyc` est mesuré au CB du séquon, pas à
+  l'arbre glycanique : il sous-estime l'occlusion. Le séquon candidat est UniProt 352 =
+  **PDB 328**, trois résidus après L325 — non vérifié.
+- **Aucune corréférence de face n'a été vérifiée.** 16,7 Å dit que les résidus sont proches,
+  pas qu'ils regardent du même côté.
+- **Les hotspots sont un biais, pas une contrainte.** À `PATCH_RADIUS = 11` ne capturant que
+  40 % d'une empreinte réelle, les trajectoires dériveront. La stratégie retenue est
+  délibérément de lancer ce seul jeu et de **trier les designs a posteriori** selon la zone
+  atteinte, plutôt que de lancer trois campagnes.
+- **Un seul rotamère, à 3,20 Å, en conformation repliée.** Toutes les SASA et tous les angles
+  en héritent.
+- **La troncature 309-506 est vérifiée sûre pour les cinq** : SASA identique à 0,0 Å² près
+  entre chaîne A entière et domaine III isolé, contrôle étendu le 03/10 aux résidus de la
+  zone B qui n'avaient jamais été testés.

@@ -49,6 +49,43 @@ CARBOXYL = {"ASP": ("OD1", "OD2"), "GLU": ("OE1", "OE2")}
 LOCAL_RADIUS = 12.0  # rayon du voisinage servant a definir le vecteur sortant
 SITES = ("G317", "N449", "K375", "C502")
 
+# ------------------------------------------------------------------------- #
+# Criteres d'ancre REELLE. Les trois sont POSES, non calibres : la calibration
+# prevue a echoue, l'empreinte du cetuximab ne contenant qu'un seul Asp/Glu
+# (E472), donc n = 1 et aucune distribution exploitable.
+#
+#   MIN_CARBOX_SASA  un cycle imidazole mesure ~4,5 x 4,0 A, soit une section de
+#                    20-25 A2. Pour qu'un cycle approche la ou une seule molecule
+#                    d'eau suffirait, le carboxylate doit presenter l'ordre de sa
+#                    propre section. Argument geometrique, pas une mesure.
+#   MIN_CARBOX_PART  le carboxylate d'un Glu est porte plus loin du squelette que
+#                    celui d'un Asp et sort donc systematiquement plus. La
+#                    fraction dit si c'est le groupe fonctionnel qui est expose
+#                    ou seulement la tige.
+#   MAX_OUTWARD_DEG  sans dimension, et c'est le vrai discriminant. Sous 60 deg le
+#                    groupe pointe vers le solvant ; au-dela de 90 il longe la
+#                    surface ou rentre.
+#
+# Limite commune : SASA calculee sur un rotamere cristallographique unique a
+# 3,20 A. Un carboxylate peut tourner en solution.
+# ------------------------------------------------------------------------- #
+MIN_CARBOX_SASA = 25.0
+MIN_CARBOX_PART = 0.40
+MAX_OUTWARD_DEG = 60.0
+
+
+def is_real_anchor(
+    carbox: float | None, part: float | None, angle: float | None
+) -> bool | None:
+    """Verdict d'ancre reelle. None si une des trois mesures manque."""
+    if carbox is None or part is None or angle is None:
+        return None
+    return (
+        carbox >= MIN_CARBOX_SASA
+        and part >= MIN_CARBOX_PART
+        and angle <= MAX_OUTWARD_DEG
+    )
+
 
 def carboxylate_sasa(res) -> float | None:
     """SASA cumulee des deux oxygenes du carboxylate. None si atomes absents."""
