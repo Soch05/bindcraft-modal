@@ -31,11 +31,17 @@ n'exécute rien et sort en 0.
     modal run --detach modal_bindcraft2.py::design --run-name <nom> --max-trajectories <n>
 
 Parallélisation : il n'y a PAS de sharding ici, contrairement à BindCraft 1. BindCraft 2.0
-répartit lui-même des workers concurrents sur l'allocation visible — voir `WORKERS` et
-`GPU_COUNT`. Deux variables d'environnement suffisent :
+répartit lui-même des workers concurrents sur l'allocation visible.
 
-    WORKERS=1 modal run ...              # série, pour mesurer un temps par trajectoire
+    --workers 1                          # série, pour mesurer un temps par trajectoire
+    --workers auto                       # 3 workers sur une L40S ici, pour produire
     GPU_COUNT=4 modal run --detach ...   # 4 cartes dans un conteneur, une seule campagne
+
+⚠️ Pourquoi `--workers` est un argument et `GPU_COUNT` une variable d'environnement : Modal
+ne propage pas l'environnement local au conteneur. Une variable lue au niveau module n'est
+correcte que si elle sert dans un DÉCORATEUR, évalué en local à l'import — c'est le cas de
+`GPU`, `GPU_COUNT` et `BUDGET_USD`. Tout ce qui est lu à l'exécution doit voyager comme
+argument, sinon ça retombe sur le défaut en silence.
 """
 
 from __future__ import annotations
@@ -72,7 +78,21 @@ GPU = os.environ.get("GPU", "L40S")
 # le même » — des shards séparés le compteraient chacun de leur côté.
 GPU_COUNT = int(os.environ.get("GPU_COUNT", 1))
 
-# `workers_per_gpu` : workers de design concurrents PAR CARTE.
+# ⚠️ `workers_per_gpu` N'EST PAS une variable d'environnement, et c'est délibéré.
+#
+# Modal ne propage PAS l'environnement local au conteneur. Une valeur lue par
+# `os.environ` au niveau module n'est correcte que si elle sert dans un DÉCORATEUR, qui
+# est évalué en local à l'import (c'est le cas de GPU, GPU_COUNT et BUDGET_USD). Tout ce
+# qui est lu à l'exécution tourne dans le conteneur, où la variable est absente et
+# retombe sur le défaut, en silence.
+#
+# Bug vécu le 3 octobre : `WORKERS=1 modal run ...` a produit une campagne à
+# `"workers_per_gpu": "auto"`, donc 3 workers au lieu d'un, et le run « série » censé
+# mesurer un temps par trajectoire ne mesurait rien. Run arrêté, ~$0,07.
+#
+# Donc : argument de fonction, sérialisé par Modal et visible dans la commande.
+#     --workers 1       série, pour mesurer un temps par trajectoire
+#     --workers auto     3 workers sur une L40S ici, pour produire
 #
 # `auto` résout à 7 puis se fait plafonner par la mémoire, dans
 # `bindcraft/design_workers.py` :
@@ -82,15 +102,6 @@ GPU_COUNT = int(os.environ.get("GPU_COUNT", 1))
 #     binder 55 → 253 résidus → 11,66 Go/worker → 3 workers
 #     binder 95 → 293 résidus → 13,32 Go/worker → 3 workers
 # On ne tombe à 1 worker que vers 430 résidus au total.
-#
-# ⚠️ Conséquence pour une MESURE : avec 3 workers, trois trajectoires partent en même
-# temps. Le temps mural vaut alors une trajectoire plus la compilation, et on ne peut PAS
-# en déduire un temps par trajectoire. Mettre WORKERS=1 pour calibrer, laisser `auto` pour
-# produire.
-# Une variable exportée mais vide compte comme une valeur chez BindCraft — l'amont prévient
-# que `BINDCRAFT_WORKERS_PER_GPU=` échoue sur la chaîne vide au lieu de retomber au défaut.
-# On traite donc le vide comme non défini.
-WORKERS = os.environ.get("WORKERS") or "auto"
 
 # Installation éditable à cette racine : `settings/` et `scaffolds/` vivent à la racine du
 # dépôt et non dans le paquet, et le runtime les trouve relativement à lui. Une install
@@ -160,12 +171,12 @@ DESIGN_TIMEOUT = budget_timeout_seconds()
 # Le mettre sur le Volume le rendrait persistant d'un appel à l'autre. MAIS c'est un système
 # de fichiers réseau en FUSE avec jusqu'à 3 écrivains concurrents, et le gain n'est pas
 # mesuré — l'amont pose aussi `JAX_PERSISTENT_CACHE_ENABLE_XLA_CACHES=none`, donc tout n'est
-# pas sérialisé de toute façon. Introduire ça dans le run qui doit MESURER le débit
+# pas sérialisé de toute façon. L'introduire dans le run qui doit MESURER le débit
 # ajouterait une variable non contrôlée à la mesure.
 #
-# Donc : éteint par défaut, activable par XLA_CACHE_ON_VOLUME=1 pour le tester séparément.
-XLA_CACHE_ON_VOLUME = os.environ.get("XLA_CACHE_ON_VOLUME") == "1"
-XLA_CACHE = f"{OUTPUTS}/.xla_cache" if XLA_CACHE_ON_VOLUME else None
+# Éteint par défaut, activable par `--xla-cache` — un argument et non une variable
+# d'environnement, pour la raison expliquée plus haut.
+XLA_CACHE_DIR = f"{OUTPUTS}/.xla_cache"
 
 # Fréquence des commits du Volume pendant un run. Un commit n'arrive qu'à la fin sans ça :
 # un conteneur tué dur perdrait tout depuis le début. `resume` étant à true, un commit
@@ -207,6 +218,16 @@ COLDSPOTS = "A359"
 
 # Catégorie minibinders d'Adaptyv : 40–100 inclus. 55–95 laisse une marge aux deux bornes.
 BINDER_LENGTHS = [55, 95]
+
+# Défauts partagés par les deux entrypoints. Ils sont ici et pas dans les signatures parce
+# que `modal run ...::design` construit sa CLI depuis la signature de `design` et non depuis
+# celle de `main` : un défaut présent seulement sur `main` rend `--n-designs` obligatoire sur
+# la commande documentée. C'est arrivé le 3 octobre.
+#
+# 20 places maximum en Track 3, et la règle est que 8 designs défendables battent 20
+# médiocres. 12 laisse de la matière au tri a posteriori sans gonfler le budget.
+DEFAULT_MAX_TRAJECTORIES = 10
+DEFAULT_N_DESIGNS = 12
 
 # ----------------------------------------------------------------------------------------
 # Image. Portée de containers/Dockerfile de l'amont.
@@ -262,7 +283,9 @@ volume = Volume.from_name("bindcraft", create_if_missing=True)
 # ----------------------------------------------------------------------------------------
 
 
-def campaign_settings(run_name: str, max_trajectories: int, n_designs: int) -> dict:
+def campaign_settings(
+    run_name: str, max_trajectories: int, n_designs: int, workers: str
+) -> dict:
     """Construit les réglages de la campagne.
 
     Les seuils laissés de côté viennent de `settings/core/default.json` de l'amont, lu au
@@ -278,8 +301,9 @@ def campaign_settings(run_name: str, max_trajectories: int, n_designs: int) -> d
         # Le seul garde de budget interne à BindCraft 2.0 : il n'y a pas de TIMEOUT.
         "max_trajectories": max_trajectories,
         # Écrit explicitement pour que `campaign_metadata.json` garde la trace de la
-        # concurrence sous laquelle la mesure a été prise. `auto` donne 3 ici (cf. WORKERS).
-        "workers_per_gpu": WORKERS,
+        # concurrence sous laquelle la mesure a été prise. Vient d'un ARGUMENT et non d'une
+        # variable d'environnement : voir le commentaire sur workers_per_gpu plus haut.
+        "workers_per_gpu": workers,
         # Adaptyv exprime en acellulaire : pas de cystéines libres. Ce réglage les interdit
         # à la source plutôt que de les filtrer après coup.
         "aa_bias": {"C": 0},
@@ -432,12 +456,18 @@ def volume_concurrency_check(n_processes: int = 3, rows_each: int = 60) -> None:
     # Une seule campagne, un seul conteneur. Garde contre un fan-out accidentel.
     max_containers=1,
 )
-def design(run_name: str, max_trajectories: int, n_designs: int) -> None:
+def design(
+    run_name: str,
+    max_trajectories: int = DEFAULT_MAX_TRAJECTORIES,
+    n_designs: int = DEFAULT_N_DESIGNS,
+    workers: str = "auto",
+    xla_cache: bool = False,
+) -> None:
     """Lance une campagne. `resume` est à true par défaut dans BindCraft 2.0, donc un
     rappel sur le même `run_name` reprend là où le précédent s'est arrêté."""
     import threading
 
-    settings = campaign_settings(run_name, max_trajectories, n_designs)
+    settings = campaign_settings(run_name, max_trajectories, n_designs, workers)
     folder = Path(settings["project_folder"])
     folder.mkdir(parents=True, exist_ok=True)
 
@@ -466,11 +496,10 @@ def design(run_name: str, max_trajectories: int, n_designs: int) -> None:
         print(f"reprise de {folder} avec des réglages identiques", flush=True)
     config.write_text(json.dumps(settings, indent=2))
     print(json.dumps(settings, indent=2), flush=True)
-    print(
-        f"budget ${BUDGET_USD:.2f} → timeout {DESIGN_TIMEOUT}s "
-        f"({DESIGN_TIMEOUT / 3600:.2f} h) sur {GPU_SPEC}",
-        flush=True,
-    )
+    # Le budget n'est PAS imprimé ici : BUDGET_USD est une variable d'environnement locale,
+    # donc sa valeur dans le conteneur est le défaut, pas celle demandée. Le `timeout` lui
+    # est correct — il vient du décorateur, évalué en local. La ligne de budget est imprimée
+    # par `main`, en local, où la valeur est vraie.
     volume.commit()
 
     # Commits périodiques : sans eux, un conteneur tué dur perdrait tout le run.
@@ -490,10 +519,10 @@ def design(run_name: str, max_trajectories: int, n_designs: int) -> None:
     committer.start()
 
     environment = dict(os.environ)
-    if XLA_CACHE:
-        Path(XLA_CACHE).mkdir(parents=True, exist_ok=True)
-        environment["JAX_COMPILATION_CACHE_DIR"] = XLA_CACHE
-        print(f"cache XLA sur le Volume : {XLA_CACHE} (non mesuré)", flush=True)
+    if xla_cache:
+        Path(XLA_CACHE_DIR).mkdir(parents=True, exist_ok=True)
+        environment["JAX_COMPILATION_CACHE_DIR"] = XLA_CACHE_DIR
+        print(f"cache XLA sur le Volume : {XLA_CACHE_DIR} (non mesuré)", flush=True)
 
     try:
         _run(["bindcraft", "design", str(config)], cwd=BC2_ROOT, env=environment)
@@ -505,20 +534,32 @@ def design(run_name: str, max_trajectories: int, n_designs: int) -> None:
 
 
 @app.local_entrypoint()
-def main(run_name: str, max_trajectories: int = 10, n_designs: int = 12) -> None:
+def main(
+    run_name: str,
+    max_trajectories: int = DEFAULT_MAX_TRAJECTORIES,
+    n_designs: int = DEFAULT_N_DESIGNS,
+    workers: str = "auto",
+    xla_cache: bool = False,
+) -> None:
     print(
-        f"GPU {GPU_SPEC} | workers_per_gpu {WORKERS} | "
+        f"GPU {GPU_SPEC} | workers_per_gpu {workers} | "
         f"cpu {CPU_PER_GPU * GPU_COUNT} | ram {MEMORY_PER_GPU_MB * GPU_COUNT // 1024} Go\n"
         f"run {run_name} | max_trajectories {max_trajectories} | n_designs {n_designs}\n"
         f"budget ${BUDGET_USD:.2f} → timeout {DESIGN_TIMEOUT}s "
         f"({DESIGN_TIMEOUT / 3600:.2f} h) — c'est le plafond de dépense"
     )
-    if WORKERS == "auto" and max_trajectories <= 4:
+    if workers == "auto" and max_trajectories <= 4:
         print(
             "\n⚠️  workers_per_gpu=auto donne 3 workers sur une L40S pour cette cible, donc "
             f"ces {max_trajectories} trajectoires partiront en parallèle. Le temps mural ne "
             "donnera PAS un temps par trajectoire.\n"
-            "    Pour calibrer : WORKERS=1 modal run ...\n"
-            "    Pour produire : laisser auto et monter max_trajectories.\n"
+            "    Pour calibrer : --workers 1\n"
+            "    Pour produire : --workers auto et monter max_trajectories.\n"
         )
-    design.remote(run_name=run_name, max_trajectories=max_trajectories, n_designs=n_designs)
+    design.remote(
+        run_name=run_name,
+        max_trajectories=max_trajectories,
+        n_designs=n_designs,
+        workers=workers,
+        xla_cache=xla_cache,
+    )

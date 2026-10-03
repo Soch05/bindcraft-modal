@@ -2377,3 +2377,60 @@ doc recommande 12.
 `max_containers=1` empêche aussi deux campagnes **différentes** de tourner en parallèle, même
 sur des dossiers disjoints. C'est volontaire : ça coûte un peu de débit et ça supprime la
 seule erreur catastrophique, deux conteneurs sur le même `project_folder` sans flock partagé.
+
+---
+
+## 3 octobre (suite 4) — deux bugs attrapés en lançant le run, dont un de fond
+
+Le run de calibration a été lancé deux fois et arrêté deux fois. Les deux échecs sont
+instructifs et valent d'être consignés.
+
+### Échec 1 — `exit=0` sans que rien ne démarre
+
+```
+Error: Missing option '--n-designs'.
+```
+
+**Exit code 0.** C'est exactement le piège que CLAUDE.md §7 documente, et sans la
+vérification sur `modal app list` j'aurais annoncé un run qui n'existait pas.
+
+Cause : en ciblant `modal run ...::design`, Modal construit la CLI depuis la signature de
+`design`, pas de `main`. Les défauts vivaient sur `main`, donc `--n-designs` était
+obligatoire — **la commande documentée dans le docstring et sur la page HTML ne marchait
+pas.** Corrigé par des défauts partagés `DEFAULT_MAX_TRAJECTORIES` et `DEFAULT_N_DESIGNS`
+utilisés par les deux entrypoints, pour que la divergence ne puisse plus revenir.
+
+### Échec 2 — les variables d'environnement ne franchissent pas la frontière Modal
+
+Le run a démarré, et sa config affichait :
+
+```
+"workers_per_gpu": "auto"
+```
+
+alors que la commande était `WORKERS=1 modal run ...`. Run arrêté au bout d'environ
+2 minutes, **~$0,07**.
+
+**La règle, et elle vaut pour tout ce dépôt : Modal ne propage pas l'environnement local au
+conteneur.** Une valeur lue par `os.environ` au niveau module n'est correcte que si elle sert
+dans un **décorateur**, qui est évalué en local à l'import. Tout ce qui est lu à l'exécution
+tourne dans le conteneur, où la variable est absente et retombe sur le défaut, **en silence**.
+
+Trois instances du même défaut dans ce que j'avais écrit :
+
+| valeur | utilisée où | état |
+|---|---|---|
+| `GPU`, `GPU_COUNT`, `BUDGET_USD` | décorateur (`gpu=`, `timeout=`, `cpu=`, `memory=`) | **correct**, évalué en local |
+| `WORKERS` | `campaign_settings()`, à distance | **cassé** — retombait sur `auto`, donc 3 workers au lieu d'1 |
+| `XLA_CACHE_ON_VOLUME` | `design()`, à distance | **cassé** — l'opt-in n'aurait jamais pu s'activer |
+| print du budget | `design()`, à distance | **trompeur** — recalculé sur le défaut, affichait un faux plafond |
+
+Corrigé : ce qui est lu à l'exécution devient un **argument de fonction**, sérialisé par
+Modal et visible dans la commande. `--workers` et `--xla-cache` remplacent les variables
+d'environnement. La ligne de budget n'est plus imprimée côté conteneur mais côté `main`, en
+local, où la valeur est vraie. `GPU_COUNT` et `BUDGET_USD` restent des variables
+d'environnement, ce qui est légitime puisqu'elles ne servent qu'aux décorateurs.
+
+**La garde de reproductibilité a fonctionné au passage** : le dossier du run avorté portait
+un `settings.json` à `workers_per_gpu: "auto"`, donc un relancement à `--workers 1` aurait
+été refusé pour dérive. Supprimé du Volume avant de relancer.
