@@ -2631,3 +2631,56 @@ certaine. `(45 − 4) // 14,58 = 2`.
   regarder avant de clusteriser les 12 places.
 
 Les logs par worker sont sur le Volume : `egfr-dIII-prod01/workers/worker_NN_gpu_N.log`.
+
+---
+
+## 3 octobre — `analyze_campaign.py`, et trois faits qu'il fait sortir de `cal01`
+
+Écrit pendant que `prod01` tourne. Aucun script du dépôt ne lisait la structure de sorties de
+2.0 — celle de BindCraft 1 est morte. Validé sur `cal01`, dont tous les chiffres étaient déjà
+connus : il reproduit l'écart de 0,124, les $0,489, les 10 candidats et les 2/3 de morts
+précoces. Il lit les seuils dans `campaign_metadata.json` et jamais en dur, parce qu'ils
+changent avec la modalité.
+
+### Fait 1 — le repliement libre du binder n'est pas le problème
+
+`Unbound_Binder_pLDDT` va de **0,81 à 0,87**, et **10/10 passent** le seuil de 0,70. Les
+binders se replient très bien tout seuls. Ce qui échoue est spécifiquement **l'interface**.
+
+### Fait 2 — `i_pAE` n'est pas le bloqueur, `i_pTM` l'est seul
+
+`i_pAE` : **1/10 passe** (0,35 exactement). `i_pTM` : **0/10**. Donc l'incohérence que j'avais
+signalée se résout en partie — `i_pAE` bloque bien 9 candidats sur 10, mais BindCraft ne
+nomme que `i_pTM` dans la ligne de rejet. Le bloqueur dominant reste `i_pTM`, et les deux
+pointent vers la même chose : la confiance d'interface sous validation tenue à l'écart.
+
+Tout le reste passe : `pTM` 10/10, `Interface_Residues` 10/10, `Interface_BuriedArea`
+609–740 Å² 10/10, `Coldspot_Contact_Fraction` 10/10.
+
+### Fait 3 — et c'est le plus important : **6 designs sur 10 n'ont AUCUNE histidine**
+
+| | min | médian | max |
+|---|---|---|---|
+| His par binder | **0** | **0,0** | 1 |
+| Asp+Glu par binder | 15 | **16,5** | 19 |
+
+**Sans biais, l'histidine est quasi absente.** 6 séquences sur 10 en ont zéro, aucune n'en a
+plus d'une. Conséquence directe sur l'objectif n°1, qui est le mieux classé du challenge :
+
+- **la route pH n°1 — His du binder contre `D323` — est pratiquement indisponible dans ce
+  lot.** On ne peut pas apparier une His qui n'existe pas. `aa_bias {"H": 2}` cesse d'être une
+  option élégante pour devenir la condition d'existence de cette route ;
+- **la route pH n°2 — acide du binder contre `H409` — a largement la matière**, médiane de
+  16,5 résidus acides par binder. C'est cohérent avec ce que CLAUDE.md §6 disait déjà : placer
+  un Asp ou Glu est trivial comparé à placer une His au bon pKa et à la bonne géométrie.
+
+**Ce que ça ne dit pas** : rien sur l'appariement géométrique. 16,5 acides par binder ne dit
+pas qu'un seul est à portée de pont salin de `H409`. Ça demande les structures, c'est
+l'action 6 du §8, et elle reste non faite. Mais on sait maintenant que **le dénominateur de la
+route 2 est confortable et celui de la route 1 est nul**, ce qui n'était pas mesuré avant.
+
+### Au passage, un garde-fou utile du script
+
+Le rapport `somme des temps design / temps mural` dit si la concurrence sert : 0,86× sur
+`cal01` (série, et sous 1 parce que le temps de redesign MPNN n'est pas dans `design`). Sur
+`prod01` à 2 workers, ce chiffre dira directement si la concurrence rapporte.

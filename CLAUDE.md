@@ -288,6 +288,7 @@ Tout ce qui suit est suivi par git et existe :
 ├── hotspot_distances.py          distances CA entre hotspots candidats
 ├── build_workbook.py             classeur Excel de travail, 4 feuilles
 ├── modal_bindcraft2.py           entrypoint Modal pour BindCraft 2.0 — BUILD VALIDÉ 03/10
+├── analyze_campaign.py           funnel, distributions, chronométrage, coût, matière pH
 │
 ├── data/egfr_patches.csv         96 patches × 41 colonnes
 ├── data/egfr_residues.csv        609 résidus × 18 colonnes
