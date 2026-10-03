@@ -61,8 +61,9 @@ y compris l'argument pH.
 | Machine locale = MacBook Air 2018, **Intel x86_64, pas de GPU CUDA** | **Aucun modèle ne tourne en local.** Jamais proposer d'exécuter AlphaFold2, BindCraft, ProteinMPNN, Boltz ou PyRosetta ici. Le local sert à écrire du code, parser des CSV, aligner des séquences, mesurer des distances, tracer des figures. |
 | Python local | venv **3.12 via `uv`**. Ne jamais cibler 3.13. Le pin `cbor2==5.9.0` dans `pyproject.toml` est obligatoire : sans lui `uv pip install modal` tente de compiler une extension Rust et échoue sur cette machine. Ne pas l'enlever. |
 | Compute GPU | **Modal** uniquement. Colab est un anti-objectif : ~10× plus lent à hardware équivalent, sessions qui meurent. |
-| **Budget : le frein est `TIMEOUT`, pas le plafond de trajectoires** | Établi sur la source BindCraft : `check_n_trajectories` ne compte que les `.pdb` de `Trajectory/Relaxed`. Une trajectoire qui finit en `LowConfidence` ou `Clashing` **ne consomme pas le quota tout en ayant consommé du GPU**. `--max-trajectories` reste un garde secondaire utile, mais le budget se pilote par `TIMEOUT` (minutes, défaut 300). **À revérifier sur 2.0.** |
-| Licence | PyRosetta en **usage académique**. Ne pas configurer ce projet pour un usage commercial. |
+| **Budget : `max_trajectories` + le `timeout` Modal** | **Révisé le 3 octobre sur la source de 2.0 : `TIMEOUT` n'existe plus.** Zéro occurrence de `timeout` dans `bindcraft/` hors appels réseau. Le mécanisme de BindCraft 1 — `check_n_trajectories` ne comptant que `Trajectory/Relaxed`, donc une trajectoire `LowConfidence`/`Clashing` brûlant du GPU hors quota — n'a plus de code correspondant. Le budget se pilote désormais par `max_trajectories` (réglage de campagne) et par le `timeout` de la fonction Modal, qui est le vrai plafond de dépense. |
+| Reprise | `resume` est à **`true` par défaut** dans `settings/core/default.json`. Un rappel sur le même `run_name` reprend la campagne. C'est ce qui rend l'architecture en appels courts sûre, et ça rend sans objet la question « un kill par `TIMEOUT` commite-t-il le volume ». |
+| Licence | **Plus de contrainte PyRosetta.** BindCraft 2.0 ne dépend plus de PyRosetta, DSSP ni DAlphaBall — zéro occurrence dans le dépôt amont au commit épinglé. Le relax est interne et en JAX (`relax_steps`, `relax_learning_rate`), et `relax_accepted_designs` est à `false` par défaut. |
 
 ---
 
@@ -82,26 +83,84 @@ des problèmes identifiés et non traitables sur l'ancienne version :
   contre P00533 **et** Q01279 simultanément. C'est aussi l'argument le plus défendable sur
   l'axe « nouveauté de la méthode ».
 
+**Forme réelle des deux, vérifiée dans la source le 3 octobre.** Les deux passent par la même
+liste `targets`, une entrée par cible, clés `name, target_path, chains, hotspots, coldspots,
+weight, objective` (`bindcraft/settings.py:38`) :
+
+```json
+"targets": [
+  {"name": "hEGFR_dIII", "target_path": "...", "chains": "A",
+   "hotspots": "A318,A323,A406,A409", "coldspots": "A359", "weight": 1.0},
+  {"name": "mEGFR_dIII", "target_path": "...", "chains": "A", "weight":  1.0},
+  {"name": "offTarget",  "target_path": "...", "chains": "A", "weight": -0.5}
+]
+```
+
+- `coldspots` accepte des **plages** : `"131-134,139,196-200"`. Poser des coldspots active
+  `weights_coldspot_repel = 1.0` et pose `max_coldspot_contact_final = 0.05` comme filtre de
+  sortie (`bindcraft/settings.py:192-195`). Le run logge `target=… coldspots=… residues=N` :
+  **c'est le point de vérification** que la plage a bien été résolue.
+- un **poids négatif** est un détargeting — c'est comme ça qu'on sélectionne *contre* une
+  cible, et plusieurs poids positifs demandent au même binder de marcher sur toutes.
+  Exemples de référence : `examples/pdl1_ortholog_pair.json` et
+  `examples/pdl1_crossreactive_detarget.json`, qui sont littéralement notre cas de figure.
+
+**Numérotation : vérifiée, pas de mémoire.** Lecture directe de `inputs/6ARU_A_309-506.pdb` le
+3 octobre : `PDB 359 = HIS` et `PDB 409 = HIS`, donc `H359` et `H409` sont bien en
+numérotation **PDB**, la même que les hotspots et que le fichier cible. Les six His de la
+cible sont aux PDB 334, 346, 359, 394, 409, 483.
+
 **Prérequis non vérifié** : le multicible demande une structure du domaine III **murin**.
 Aucune recherche n'a été faite sur l'existence d'une structure expérimentale de Q01279 ;
 à défaut, un modèle AlphaFold, avec les réserves que ça implique pour tout calcul de SASA.
 
+**Coldspots encore incomplets** : seul `A359` est câblé dans
+[modal_bindcraft2.py](modal_bindcraft2.py). Les résidus à moins de ~10 Å d'un séquon
+(§8 action 4) **n'ont jamais été mesurés depuis les hotspots retenus**. Ne pas inventer la
+liste — la mesurer.
+
 **⚠️ Ce qui n'est PLUS valide.** L'ancienne version était épinglée au commit `c0a48d5`, et
 tous les chiffres de débit de [NOTES.md](NOTES.md) y sont attachés :
 
-| mesuré sur `c0a48d5` | valeur | statut sur 2.0 |
+| mesuré sur `c0a48d5` | valeur | statut sur 2.0, au 3 octobre |
 |---|---|---|
 | temps par trajectoire relaxée, cible 198 résidus | 8,49 min | **à re-mesurer** |
 | temps par tentative, tout compris | 10,1 min | **à re-mesurer** |
 | coût, 6 tentatives sur L40S | $1,97 | **à re-mesurer** |
-| taux de relaxation | 3/6 | **à re-mesurer** |
-| `check_n_trajectories` ne compte que `Relaxed` | établi | **à revérifier** |
-| filtre dominant : `i_pAE`, 20 rejets sur 29 | établi | **à revérifier** |
-| noms de colonnes de `failure_csv.csv` | établis | **à revérifier** |
-| seuils de `default_filters.json` | non lus | **à lire** |
+| taux de relaxation | 3/6 | **caduc** : `relax_accepted_designs` est à `false` par défaut, le relax n'est plus PyRosetta |
+| `check_n_trajectories` ne compte que `Relaxed` | établi | **caduc** : plus de code correspondant, voir §2 |
+| filtre dominant : `i_pAE`, 20 rejets sur 29 | établi | **à re-mesurer** — mais les noms de filtres ont changé |
+| noms de colonnes de `failure_csv.csv` | établis | **caduc** : les sorties s'appellent désormais `trajectories.csv`, `candidates.csv`, `accepted.csv` |
+| seuils de `default_filters.json` | non lus | **lus**, dans `settings/core/default.json` — valeurs en §6 |
 
-Le build Modal, les pins `jax`/`numpy`, l'emplacement des poids AF2 et la structure des
-sorties sont également à réétablir. **Valider le build avant toute dépense** (§8).
+**Ce qui est établi sur 2.0** (lu dans la source au commit épinglé, 3 octobre) :
+
+| | |
+|---|---|
+| Dépôt | **`PacesaLab/BindCraft2`** — un dépôt distinct, *pas* un tag de `martinpacesa/BindCraft` |
+| Commit épinglé | **`a8d0f2002df373842b86a3c20c5a060c5cfdf980`** |
+| Version du paquet | `1.0.1`, `requires-python >= 3.12` |
+| Pins | `jax>=0.11,<0.12` via l'extra **`cuda13`**, `numpy` **non épinglé** (le pin `<2.0` n'existait que pour PyRosetta) |
+| Plancher GPU | CUDA 13 exige une compute capability **≥ 7,5**. L40S = 8,9, donc bon. |
+| Poids ProteinMPNN | **livrés dans le paquet**, 77 Mo, 3 variantes × 4 modèles. Rien à télécharger. |
+| Poids AF2 | 5,3 Go, 7 modèles (`model_1..5_multimer_v3`, `model_1_ptm`, `model_2_ptm`). Trouvés par `BINDCRAFT_AF2_PARAMS`, sinon sous `<paquet>/weights/alphafold`, sinon téléchargés. |
+| CLI | `bindcraft design <settings.json>`, plus `rank`, `filter`, `score`, `fetch-weights`, `archive` |
+| Config | **JSON**, pas de CLI de paramètres. 235 réglages documentés dans `settings/core/reference.json`. |
+| Validation | `python -m bindcraft.selfcheck cuda13` nomme chaque module et chaque checkpoint manquant |
+
+Le build Modal est porté de `containers/Dockerfile` de l'amont, dans
+[modal_bindcraft2.py](modal_bindcraft2.py). Deux pièges que ce Dockerfile documente et qu'il
+faut garder :
+
+- les wheels `jax[cuda13]` gardent leurs bibliothèques sous `site-packages/nvidia/*/lib`,
+  **où le loader ne regarde pas**. Sans le fichier `ld.so.conf.d` qui les déclare, jax
+  avertit une fois puis tourne sur le CPU, cent fois plus lentement, et rien ensuite ne le
+  signale. Le build échoue exprès sur `ldconfig -p | grep -q libcupti` ;
+- l'installation doit être **éditable** à la racine du dépôt : `settings/` et `scaffolds/`
+  vivent à la racine et non dans le paquet, et le runtime les trouve relativement à lui. Une
+  install classique ne copierait que le paquet et les orphelinerait.
+
+**Valider le build avant toute dépense** (§8) : `modal run modal_bindcraft2.py::selfcheck`.
 
 ### Exécution : Modal
 
@@ -109,9 +168,17 @@ Volume `bindcraft` monté sur `/outputs`, un répertoire par `run_name`. GPU par
 (46 Go vérifiés), surchargeable par la variable d'environnement `GPU`. Tarif L40S mesuré :
 **$0,000542/s = $1,95/h**.
 
-Sur l'ancien build, les poids AF2 étaient dans l'Image et non dans le Volume — décision
-délibérée documentée dans NOTES.md, la couche `aria2c` étant placée avant PyRosetta et avant
-les pins. Si 2.0 garde une structure d'image comparable, reproduire ce choix.
+Les poids AF2 sont **dans l'Image et non dans le Volume** — choix de l'ancien build,
+reproduit, et que l'amont recommande lui aussi (`--build-arg ALPHAFOLD_PARAMETERS=bake`).
+La couche de téléchargement est placée après l'install et avant la vérification finale, pour
+qu'une invalidation de cache en amont ne refasse pas les 5,3 Go pour rien.
+
+Le volume ne contient plus qu'un répertoire : `smoke-G317`, le run de fumée EGFR du
+1er octobre. Les quatre runs de démo PD-L1 de BindCraft 1 (`test1`, `par-test`, `par-test2`,
+`par-test3`) ont été supprimés du volume et du local le 3 octobre. `smoke-G317` est conservé
+parce qu'il porte les structures acceptées sur lesquelles prototyper la mesure
+d'appariement His–acide (§8 action 6) et parce que CLAUDE.md §6 cite son observation des
+3 His d'interface.
 
 ### Re-scoring orthogonal — jamais câblé
 
@@ -155,7 +222,7 @@ Tout ce qui suit est suivi par git et existe :
 ├── footprint_extent.py           étendue de l'empreinte du Fab, lecture seule
 ├── hotspot_distances.py          distances CA entre hotspots candidats
 ├── build_workbook.py             classeur Excel de travail, 4 feuilles
-├── modal_bindcraft.py            entrypoint Modal — POUR c0a48d5, à refaire pour 2.0
+├── modal_bindcraft2.py           entrypoint Modal pour BindCraft 2.0 — BUILD VALIDÉ 03/10
 │
 ├── data/egfr_patches.csv         96 patches × 41 colonnes
 ├── data/egfr_residues.csv        609 résidus × 18 colonnes
@@ -168,8 +235,20 @@ Tout ce qui suit est suivi par git et existe :
 Gitignorés et régénérables : `data/*.cif`, `data/*.json` (caches réseau),
 `data/*.xlsx` et `data/*.pdf` (rendus dérivés des CSV).
 
-`inputs/PDL1.pdb` est la cible de la démo du 23 septembre, **plus utilisée** — conservée
-seulement parce que le run `test1` de NOTES.md s'y réfère.
+**Supprimé le 3 octobre, vestiges de BindCraft 1** — tout est récupérable dans l'historique
+git, et les entrées de NOTES.md qui s'y réfèrent sont conservées comme journal :
+
+| supprimé | ce que c'était |
+|---|---|
+| `modal_bindcraft.py` | entrypoint de 1429 lignes pour `c0a48d5`, avec sa logique de sharding et son setup PyRosetta. Remplacé par `modal_bindcraft2.py`. |
+| `inputs/PDL1.pdb` | cible de la démo du 23 septembre, plus utilisée |
+| `out/test1`, `out/par-test2`, `out/par-test3` | 134 Mo de sorties de démo PD-L1 |
+| volume : `test1`, `par-test`, `par-test2`, `par-test3` | les mêmes, côté Modal |
+
+**Conservé** : `out/smoke-G317` (28 Ko de CSV) et `smoke-G317` sur le volume, qui porte en
+plus les structures acceptées. C'est le run de fumée EGFR du 1er octobre, la source de
+l'observation des 3 His d'interface citée en §6 et la matière de l'action 6 du §8. Ses
+*chiffres de débit* restent caducs comme tous ceux de `c0a48d5`.
 
 **`NOTES.md` est le journal et doit être tenu à jour à chaque run** : commande exacte, GPU,
 durée, coût, tentatives, acceptés, décision. C'est la matière première du dossier de méthodes,
@@ -298,13 +377,35 @@ sans eux la soumission ne peut argumenter que de l'affinité.
 
 ### Seuils
 
-⚠️ **Piège d'échelle** : BindCraft normalise pLDDT et pAE sur [0,1] dans ses fichiers de
-filtres, alors que la littérature les cite en 0–100 et en Å. Vérifier l'échelle avant toute
-comparaison ou tout seuil copié d'un papier.
+⚠️ **Piège d'échelle, désormais confirmé par lecture** : BindCraft normalise pLDDT et pAE sur
+[0,1] dans ses fichiers de filtres, alors que la littérature les cite en 0–100 et en Å.
+Vérifier l'échelle avant toute comparaison ou tout seuil copié d'un papier.
 
-Sur `c0a48d5`, le profil de rejet mesuré était **`i_pAE` 20 rejets, `pLDDT` 6, `i_pTM` 3,
-tout le reste 0**. Si le rendement doit monter, c'est le seul levier qui compte — mais
-**à revérifier sur 2.0** avant d'y toucher, et contre le `default_filters.json` réel.
+**Les filtres de sortie réels de 2.0**, lus dans `settings/core/default.json` au commit
+épinglé le 3 octobre (le fichier `default_filters.json` de BindCraft 1 n'existe plus) :
+
+| filtre | seuil | sens |
+|---|---|---|
+| `Unbound_Binder_pLDDT` | **0,80** | plus haut est mieux |
+| `pTM` | **0,55** | plus haut est mieux |
+| `i_pTM` | **0,70** | plus haut est mieux |
+| `i_pAE` | **0,35** | plus bas est mieux |
+| `Backbone_Clashes` | **0** | plus bas est mieux |
+| `Interface_Residues` | **7** | plus haut est mieux |
+
+Tous les quatre premiers sont sur **[0,1]**. Poser des coldspots ajoute
+`max_coldspot_contact_final = 0,05`.
+
+Il existe par ailleurs des planchers **par étage de trajectoire**, qui coupent avant d'arriver
+aux filtres de sortie : `min_plddt_screen` 0,60, `min_plddt_refine` 0,60, `min_plddt_anneal`
+0,65, `min_plddt_harden` 0,65, `min_plddt_final` 0,70, `min_iptm_anneal` / `_harden` /
+`_mutate` 0,50, `min_iptm_final` 0,70. C'est un pipeline par étages, pas un filtre unique en
+bout de chaîne comme sur BindCraft 1 — donc le « profil de rejet » n'a plus la même forme.
+
+Sur `c0a48d5`, le profil de rejet mesuré était `i_pAE` 20 rejets, `pLDDT` 6, `i_pTM` 3, tout
+le reste 0. **À re-mesurer sur 2.0** : les noms de filtres ont changé, les étages sont
+nouveaux, et les sorties s'appellent maintenant `trajectories.csv`, `candidates.csv` et
+`accepted.csv`.
 
 ### Sélection finale
 
@@ -378,17 +479,23 @@ avancer.
 
 ## 8. Prochaines actions, dans l'ordre
 
-1. [ ] **Installer et valider BindCraft 2.0 sur Modal.** Build, pins, poids AF2, structure des
-       sorties. `jax.devices()` doit voir un GPU CUDA avant toute dépense.
+1. [x] **Installer et valider BindCraft 2.0 sur Modal.** FAIT le 3 octobre.
+       `modal run modal_bindcraft2.py::selfcheck` →
+       `jax 0.11.2 | backend gpu | devices [CudaDevice(id=0)]`, les 7 modèles AF2 et les
+       3 variantes ProteinMPNN complets, cible lue à 198 résidus. Reste non établi : la
+       **structure des sorties**, qui ne se verra qu'au premier vrai run.
 2. [ ] **Re-mesurer le débit** sur `inputs/6ARU_A_309-506.pdb` avec
-       `A318,A323,A406,A409` et `--lengths 55,95` : temps par tentative, taux de
-       relaxation, taux d'acceptation, profil de rejet, coût réel. Tous les chiffres de
-       `c0a48d5` sont caducs (§3).
-3. [ ] **Vérifier si un kill par `TIMEOUT` commite le volume.** Une annulation le fait, c'est
-       établi ; un timeout n'est pas testé. ~$0,20 sur un run `TIMEOUT=6`. Conditionne
-       l'architecture en appels courts.
-4. [ ] **Coldspots** : écarter `H359` (diverge en Arg) et les résidus à moins de ~10 Å d'un
-       séquon. C'est la première fonctionnalité de 2.0 à exploiter.
+       `A318,A323,A406,A409` et `binder_lengths [55,95]` : temps par trajectoire, taux
+       d'acceptation, profil de rejet par étage, coût réel. Tous les chiffres de
+       `c0a48d5` sont caducs (§3). Lancer petit — `--max-trajectories 3` — pour fixer le
+       coût par trajectoire avant d'engager un budget.
+3. [x] ~~Vérifier si un kill par `TIMEOUT` commite le volume.~~ **Sans objet** : `TIMEOUT`
+       n'existe pas dans 2.0, et `resume` est à `true` par défaut (§2). L'architecture en
+       appels courts est sûre par construction. $0,20 économisés.
+4. [ ] **Coldspots** : `A359` est **câblé** dans `modal_bindcraft2.py`. Restent les résidus à
+       moins de ~10 Å d'un séquon, **jamais mesurés depuis les hotspots retenus** : c'est une
+       mesure locale à écrire, pas une liste à deviner. Vérifier dans le log du run la ligne
+       `target=… coldspots=… residues=N` qui dit combien ont été résolus.
 5. [ ] **Multicible** : trouver ou modéliser le domaine III de Q01279. Sans ça, pas de
        multicible, et l'objectif n°2 reste un filtre a posteriori.
 6. [ ] **Mesurer l'appariement His–acide** sur les structures des designs acceptés : une His du

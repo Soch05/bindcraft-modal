@@ -1965,3 +1965,160 @@ CLAUDE.md §5 et §8 mis à jour en conséquence. Les deux décisions successive
 3/10 puis le retirer le même jour — sont conservées telles quelles dans ce journal : la
 première reposait sur le gain de surface, la seconde sur le fait que `min_glyc` sous-estime
 l'occlusion. Les deux sont défendables, la seconde est la prudente.
+
+---
+
+## 3 octobre — BindCraft 2.0 installé sur Modal, build validé ; vestiges de BC1 supprimés
+
+### Ce qui a été supprimé
+
+| supprimé | taille | motif |
+|---|---|---|
+| `modal_bindcraft.py` | 1429 lignes | entrypoint pour `c0a48d5`, avec sharding et setup PyRosetta |
+| `inputs/PDL1.pdb` | — | cible de la démo du 23/09 |
+| `out/test1`, `out/par-test2`, `out/par-test3` | 134 Mo | sorties de démo PD-L1 |
+| volume : `test1`, `par-test`, `par-test2`, `par-test3` | — | les mêmes, côté Modal |
+
+Tout est récupérable dans l'historique git. Les entrées de ce journal qui s'y réfèrent sont
+conservées telles quelles — c'est un journal, pas un état.
+
+**Conservé délibérément : `smoke-G317`**, en local (28 Ko de CSV) et sur le volume (avec les
+structures acceptées). C'est la source de l'observation des 3 His d'interface citée dans
+CLAUDE.md §6, et la matière de l'action 6. Supprimer une preuve citée dans un document suivi
+est le seul geste irréversible du lot. Ses chiffres de débit restent caducs.
+
+### BindCraft 2.0 : ce qui est un dépôt différent
+
+**`PacesaLab/BindCraft2`, pas un tag de `martinpacesa/BindCraft`.** Épinglé à
+`a8d0f2002df373842b86a3c20c5a060c5cfdf980` (29/09, HEAD au 3/10). Paquet `bindcraft 1.0.1`,
+`requires-python >= 3.12`.
+
+### Trois choses qui changent l'architecture, lues dans la source
+
+**1. PyRosetta, DSSP et DAlphaBall ont disparu.** Zéro occurrence dans tout le dépôt amont.
+Conséquences en cascade : plus de contrainte de licence académique ; plus de `chmod` de
+binaires ; et surtout **le pin `numpy<2.0` n'a plus de raison d'être** — il n'existait que
+pour PyRosetta. L'image installe `numpy` 2.x sans rien casser. Le relax est désormais interne
+et en JAX (`relax_steps`, `relax_learning_rate`), et `relax_accepted_designs` est à `false`
+par défaut, donc le « taux de relaxation 3/6 » de `c0a48d5` ne mesure plus rien.
+
+**2. `TIMEOUT` n'existe pas.** Zéro occurrence de `timeout` dans `bindcraft/` hors appels
+réseau. Tout le modèle de budget de CLAUDE.md §2 — `check_n_trajectories` ne comptant que
+`Trajectory/Relaxed`, donc une trajectoire `LowConfidence`/`Clashing` brûlant du GPU hors
+quota — **n'a plus de code correspondant**. Le budget se pilote par `max_trajectories` et par
+le `timeout` de la fonction Modal.
+
+**3. `resume` est à `true` par défaut** (`settings/core/default.json`). Un rappel sur le même
+`run_name` reprend la campagne.
+
+→ **L'action 3 du §8 est sans objet.** « Vérifier si un kill par `TIMEOUT` commite le volume »
+portait sur un mécanisme qui n'existe plus, et `resume` rend l'architecture en appels courts
+sûre par construction. $0,20 non dépensés.
+
+### Les filtres réels, enfin lus
+
+`default_filters.json` n'existe plus ; les seuils sont dans `settings/core/default.json`.
+**Le piège d'échelle de CLAUDE.md §6 est confirmé : tout est sur [0,1].**
+
+| filtre | seuil | sens |
+|---|---|---|
+| `Unbound_Binder_pLDDT` | 0,80 | ↑ |
+| `pTM` | 0,55 | ↑ |
+| `i_pTM` | 0,70 | ↑ |
+| `i_pAE` | 0,35 | ↓ |
+| `Backbone_Clashes` | 0 | ↓ |
+| `Interface_Residues` | 7 | ↑ |
+
+Et c'est maintenant un **pipeline par étages**, pas un filtre unique en bout de chaîne :
+`min_plddt_screen` 0,60 → `_refine` 0,60 → `_anneal` 0,65 → `_harden` 0,65 → `_final` 0,70,
+avec `min_iptm_*` à 0,50 et `min_iptm_final` 0,70. Le « profil de rejet » de `c0a48d5`
+(`i_pAE` 20/29) n'a donc plus la même forme et est à re-mesurer. Les sorties s'appellent
+`trajectories.csv`, `candidates.csv`, `accepted.csv`.
+
+### Le build Modal
+
+Porté de `containers/Dockerfile` de l'amont vers `modal_bindcraft2.py`. Deux pièges que
+l'amont documente et qu'il fallait garder :
+
+- les wheels `jax[cuda13]` gardent leurs bibliothèques sous `site-packages/nvidia/*/lib`,
+  **où le loader ne regarde pas**. Sans un fichier `ld.so.conf.d` qui les déclare, jax
+  avertit une fois puis tourne sur le CPU, cent fois plus lentement, **et rien ensuite ne le
+  signale**. Le build échoue exprès sur `ldconfig -p | grep -q libcupti` ;
+- l'install doit être **éditable** à la racine du dépôt : `settings/` et `scaffolds/` vivent
+  à la racine et non dans le paquet, et le runtime les trouve relativement à lui.
+
+Poids : ProteinMPNN est **livré dans le paquet** (77 Mo), seuls les 5,3 Go d'AF2 sont
+téléchargés, et ils sont **bakés dans l'image** — choix de l'ancien build, reproduit, et que
+l'amont recommande aussi (`--build-arg ALPHAFOLD_PARAMETERS=bake`). Le téléchargement amont
+est en `urllib` mono-flux, plus lent que l'`aria2c -x16` de BC1, mais c'est une fois.
+
+**Faux positif à connaître** : pendant le build, l'étape de vérification crache un
+`RuntimeError: Unable to load cuPTI. Is it installed?` puis imprime `jax 0.11.2` et sort en 0.
+C'est la machine de build, qui n'a pas de GPU. Ça n'invalide rien — mais ça ressemble
+exactement à l'échec qu'on cherche à éviter, donc ne pas s'y tromper. Le seul test qui compte
+est sur un vrai GPU.
+
+### Validation
+
+```
+modal run modal_bindcraft2.py::selfcheck
+```
+
+```
+jax 0.11.2 | backend gpu | devices [CudaDevice(id=0)]
+poids AF2 : /opt/bindcraft/bindcraft/weights/alphafold
+checkpoints : les 7 modèles AF2 et les 3 variantes ProteinMPNN sont complets
+cible /root/inputs/6ARU_A_309-506.pdb : 198 résidus
+
+BUILD VALIDE
+```
+
+GPU L40S, app `ap-smgZANABHeq8fwiRWFU0ct`, état `stopped`. `backend gpu` et non `cpu` : le
+piège du loader est évité. Durée GPU de l'ordre de la minute ; **coût non relevé précisément**
+— le CLI Modal ne donne pas les GPU-secondes, et je ne vais pas inventer un chiffre. Au tarif
+mesuré de $1,95/h, c'est ~$0,03.
+
+**Ce qui reste non établi** : la structure des sorties, qui ne se verra qu'au premier vrai run.
+
+### Numérotation : vérifiée par lecture, pas de mémoire
+
+Lecture directe de `inputs/6ARU_A_309-506.pdb` : `318 ILE`, `323 ASP`, `325 LEU`, `359 HIS`,
+`406 THR`, `409 HIS`. Les six noms de CLAUDE.md (I318, D323, L325, H359, T406, H409) sont donc
+tous en numérotation **PDB**, cohérente avec le fichier cible et avec les hotspots. Les six His
+de la cible sont aux PDB 334, 346, 359, 394, 409, 483.
+
+### Coldspots : `A359` câblé, et pourquoi `A325` ne l'est PAS
+
+La forme réelle est une clé `coldspots` par cible, acceptant des plages (`"131-134,139"`).
+Poser des coldspots active `weights_coldspot_repel = 1.0` et pose
+`max_coldspot_contact_final = 0,05` (`bindcraft/settings.py:192-195`). Le run logge
+`target=… coldspots=… residues=N` : c'est le point de vérification que la plage a été résolue.
+
+**Le rayon des pertes coldspot est de 8,0 Å** (`bindcraft/loss.py`, `cutoff: float=8.0` sur
+`binder_coldspot`, `binder_intra_coldspot` et `coldspot_repel`). Tout coldspot candidat doit
+donc être mesuré contre ce rayon. Distances CA mesurées le 3 octobre :
+
+| candidat | 318 | 323 | 406 | 409 | verdict |
+|---|---|---|---|---|---|
+| **A359** | 19,46 | **13,50** | 28,22 | 26,65 | **sûr** — hors du rayon de 8 Å |
+| **A325** | 10,61 | **6,36** | 16,06 | 14,66 | **écarté** — sous le rayon |
+
+La fin de l'entrée précédente faisait de `L325` un « candidat coldspot au même titre que
+H359 ». **C'était faux, et la mesure le montre.** À 6,36 Å de A323, la sphère de répulsion
+autour de 325 avale 323 : déclarer A325 coldspot repousserait le binder hors de **D323**, qui
+porte la route pH n°1. Ce serait sacrifier l'objectif le mieux classé du challenge pour
+écarter un risque glycanique sur un résidu qu'on a déjà sorti des hotspots — le risque est
+déjà traité par son retrait, l'écarter *activement* coûte beaucoup plus qu'il ne rapporte.
+
+Les deux raisonnements successifs sont conservés : le premier était une intuition de symétrie
+avec H359, le second une mesure. H359 est à 13,50 Å, A325 à 6,36 Å — la symétrie n'existait
+pas.
+
+**Coldspots encore incomplets** : les résidus à moins de ~10 Å d'un séquon (§8 action 4) n'ont
+jamais été mesurés depuis les hotspots retenus. À mesurer, puis à filtrer contre le rayon de
+8 Å comme ci-dessus.
+
+### Prochaine dépense
+
+Action 2 : un run court — `--max-trajectories 3` — pour fixer le temps et le coût par
+trajectoire sur 2.0 avant d'engager un budget. Aucun chiffre de débit de `c0a48d5` ne survit.
