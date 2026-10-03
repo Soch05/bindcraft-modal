@@ -29,6 +29,13 @@ n'exécute rien et sort en 0.
 
     modal run modal_bindcraft2.py::selfcheck
     modal run --detach modal_bindcraft2.py::design --run-name <nom> --max-trajectories <n>
+
+Parallélisation : il n'y a PAS de sharding ici, contrairement à BindCraft 1. BindCraft 2.0
+répartit lui-même des workers concurrents sur l'allocation visible — voir `WORKERS` et
+`GPU_COUNT`. Deux variables d'environnement suffisent :
+
+    WORKERS=1 modal run ...              # série, pour mesurer un temps par trajectoire
+    GPU_COUNT=4 modal run --detach ...   # 4 cartes dans un conteneur, une seule campagne
 """
 
 from __future__ import annotations
@@ -51,6 +58,34 @@ BC2_COMMIT = "a8d0f2002df373842b86a3c20c5a060c5cfdf980"
 # L40S : compute capability 8.9, au-dessus du plancher 7.5 de CUDA 13. 46 Go vérifiés.
 GPU = os.environ.get("GPU", "L40S")
 
+# Nombre de cartes dans UN SEUL conteneur. BindCraft 2.0 a `auto_multi_gpu` à true et
+# répartit lui-même ses workers sur toute l'allocation visible, donc monter ce chiffre
+# parallélise sans sharder.
+#
+# ⚠️ NE PAS revenir au sharding de BindCraft 1 (`shard-000`, `shard-001`…). Sur 2.0 chaque
+# shard serait une campagne indépendante chassant son propre `number_of_final_designs` :
+# N shards = N × les designs et N × le coût. Et le barreau de l'échelle de désespoir est
+# « lu sur les tables de la campagne, donc chaque worker et une campagne reprise sont sur
+# le même » — des shards séparés le compteraient chacun de leur côté.
+GPU_COUNT = int(os.environ.get("GPU_COUNT", 1))
+
+# `workers_per_gpu` : workers de design concurrents PAR CARTE.
+#
+# `auto` résout à 7 puis se fait plafonner par la mémoire, dans
+# `bindcraft/design_workers.py` :
+#     mem_par_worker = 2.0 × (3.4 + 38000 × n_residus² / 1e9)
+#     workers        = (libre_Go − 4) // mem_par_worker
+# Calculé le 3 octobre pour notre cible (198 résidus) sur une L40S de 46 Go :
+#     binder 55 → 253 résidus → 11,66 Go/worker → 3 workers
+#     binder 95 → 293 résidus → 13,32 Go/worker → 3 workers
+# On ne tombe à 1 worker que vers 430 résidus au total.
+#
+# ⚠️ Conséquence pour une MESURE : avec 3 workers, trois trajectoires partent en même
+# temps. Le temps mural vaut alors une trajectoire plus la compilation, et on ne peut PAS
+# en déduire un temps par trajectoire. Mettre WORKERS=1 pour calibrer, laisser `auto` pour
+# produire.
+WORKERS = os.environ.get("WORKERS", "auto")
+
 # Installation éditable à cette racine : `settings/` et `scaffolds/` vivent à la racine du
 # dépôt et non dans le paquet, et le runtime les trouve relativement à lui. Une install
 # classique ne copierait que le paquet et les orphelinerait.
@@ -62,6 +97,9 @@ BC2_ROOT = "/opt/bindcraft"
 SHIPPED_WEIGHTS = f"{BC2_ROOT}/bindcraft/weights"
 
 OUTPUTS = "/outputs"
+
+# Modal attend "L40S" pour une carte, "L40S:4" pour quatre dans le même conteneur.
+GPU_SPEC = GPU if GPU_COUNT == 1 else f"{GPU}:{GPU_COUNT}"
 
 # ----------------------------------------------------------------------------------------
 # La cible et les biais de ciblage. Numérotation PDB, celle du fichier cible.
@@ -168,6 +206,9 @@ def campaign_settings(run_name: str, max_trajectories: int, n_designs: int) -> d
         "number_of_final_designs": n_designs,
         # Le seul garde de budget interne à BindCraft 2.0 : il n'y a pas de TIMEOUT.
         "max_trajectories": max_trajectories,
+        # Écrit explicitement pour que `campaign_metadata.json` garde la trace de la
+        # concurrence sous laquelle la mesure a été prise. `auto` donne 3 ici (cf. WORKERS).
+        "workers_per_gpu": WORKERS,
         # Adaptyv exprime en acellulaire : pas de cystéines libres. Ce réglage les interdit
         # à la source plutôt que de les filtrer après coup.
         "aa_bias": {"C": 0},
@@ -232,7 +273,7 @@ def selfcheck() -> None:
     print("\nBUILD VALIDE")
 
 
-@app.function(image=image, gpu=GPU, volumes={OUTPUTS: volume}, timeout=86400)
+@app.function(image=image, gpu=GPU_SPEC, volumes={OUTPUTS: volume}, timeout=86400)
 def design(run_name: str, max_trajectories: int, n_designs: int) -> None:
     """Lance une campagne. `resume` est à true par défaut dans BindCraft 2.0, donc un
     rappel sur le même `run_name` reprend là où le précédent s'est arrêté."""
@@ -256,5 +297,16 @@ def design(run_name: str, max_trajectories: int, n_designs: int) -> None:
 
 @app.local_entrypoint()
 def main(run_name: str, max_trajectories: int = 10, n_designs: int = 10) -> None:
-    print(f"GPU {GPU} | run {run_name} | max_trajectories {max_trajectories}")
+    print(
+        f"GPU {GPU_SPEC} | workers_per_gpu {WORKERS} | run {run_name} | "
+        f"max_trajectories {max_trajectories} | n_designs {n_designs}"
+    )
+    if WORKERS == "auto" and max_trajectories <= 4:
+        print(
+            "\n⚠️  workers_per_gpu=auto donne 3 workers sur une L40S pour cette cible, donc "
+            f"ces {max_trajectories} trajectoires partiront en parallèle. Le temps mural ne "
+            "donnera PAS un temps par trajectoire.\n"
+            "    Pour calibrer : WORKERS=1 modal run ...\n"
+            "    Pour produire : laisser auto et monter max_trajectories.\n"
+        )
     design.remote(run_name=run_name, max_trajectories=max_trajectories, n_designs=n_designs)

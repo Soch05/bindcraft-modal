@@ -2122,3 +2122,80 @@ jamais été mesurés depuis les hotspots retenus. À mesurer, puis à filtrer c
 
 Action 2 : un run court — `--max-trajectories 3` — pour fixer le temps et le coût par
 trajectoire sur 2.0 avant d'engager un budget. Aucun chiffre de débit de `c0a48d5` ne survit.
+
+---
+
+## 3 octobre (suite) — parallélisation : pas de sharding, et un défaut corrigé dans la calibration
+
+Question posée : est-ce que l'entrypoint parallélise ? Réponse : non explicitement, et il ne
+doit pas — mais le run de calibration tel que je l'avais annoncé était mal spécifié.
+
+### Pourquoi le sharding de BindCraft 1 serait maintenant nocif
+
+L'ancien `modal_bindcraft.py` découpait en `shard-000`, `shard-001`… un conteneur et un GPU
+par shard, parce que BindCraft 1 n'avait aucune coordination au niveau campagne. Sur 2.0 :
+
+- chaque shard serait une **campagne indépendante** chassant son propre
+  `number_of_final_designs`. N shards = N × les designs et N × le coût ;
+- le barreau de l'échelle de désespoir est « lu sur les tables de la campagne, donc chaque
+  worker et une campagne reprise sont sur le même » — des shards le compteraient chacun de
+  leur côté ;
+- `.campaign_state.json` est un état de campagne, pas de processus.
+
+Le sharding se bat contre les trois. Retiré, et un avertissement posé dans le fichier pour
+ne pas y revenir.
+
+### Ce que BindCraft 2.0 fait tout seul
+
+`workers_per_gpu` vaut `auto` par défaut, ce qui résout à 7 puis se fait plafonner par la
+mémoire. Formule lue dans `bindcraft/design_workers.py` :
+
+```
+mem_par_worker = DESIGN_MEMORY_SAFETY_FACTOR × (DESIGN_MODEL_RESIDENT_GB
+                 + DESIGN_ACTIVATION_BYTES_PER_RESIDUE_PAIR × n_residus² / 1e9)
+               = 2.0 × (3.4 + 38000 × n² / 1e9)
+workers        = (libre_Go − GPU_MEMORY_HEADROOM_GB) // mem_par_worker   # headroom = 4,0
+```
+
+Calculé pour notre cible (198 résidus) sur une L40S de 46 Go :
+
+| binder | total résidus | Go/worker | workers |
+|---|---|---|---|
+| 55 | 253 | 11,66 | **3** |
+| 64 | 262 | 12,02 | **3** |
+| 95 | 293 | 13,32 | **3** |
+
+On ne tombe à 1 worker que vers **430 résidus** au total. Donc **3× de parallélisme déjà
+acquis, sans rien coder.** Un second plafond existe côté RAM hôte
+(`HOST_MEMORY_PER_WORKER_GB = 4.0`, soit `dispo_Go // 4 // n_gpu`) — non vérifié sur une
+instance Modal L40S, à regarder dans le log du premier run.
+
+### Le défaut corrigé
+
+**`max_trajectories: 3` avec 3 workers fait partir les trois trajectoires en parallèle.** Le
+temps mural vaut alors une trajectoire plus la compilation, et on ne peut pas en déduire un
+temps par trajectoire. J'avais présenté ce run comme une mesure de débit : c'était un
+échantillon de taille 1 sous concurrence non contrôlée.
+
+Trois ajouts dans `modal_bindcraft2.py` :
+
+| variable | défaut | effet |
+|---|---|---|
+| `WORKERS` | `auto` | écrit dans `workers_per_gpu`, donc tracé dans `campaign_metadata.json`. `WORKERS=1` sérialise pour mesurer. |
+| `GPU_COUNT` | `1` | `gpu="L40S:N"` — N cartes dans **un** conteneur. `auto_multi_gpu` étant à true, BC2 répartit seul. Une campagne, pas N. |
+| avertissement CLI | — | si `WORKERS=auto` et `max_trajectories ≤ 4`, le lancement prévient que le temps mural ne donnera pas un temps par trajectoire. |
+
+### Révision du plan de calibration
+
+Deux runs au lieu d'un, et ils ne mesurent pas la même chose :
+
+1. **`WORKERS=1`, `max_trajectories 3`** — temps par trajectoire propre, profil de rejet par
+   étage, vérification que la ligne `target=… coldspots=… residues=N` résout bien `A359`.
+   C'est le run qui sert à *comprendre*.
+2. **`WORKERS=auto`, max_trajectories dimensionné sur (1)** — débit réel et coût par design
+   accepté, dans la configuration de production. C'est le run qui sert à *budgétiser*.
+
+Note sur la compilation : `length_bucket_size` vaut 32, donc `[55, 95]` rembourre vers 64 et
+96, soit **deux seaux** et deux compilations par worker. Avec 3 workers et
+`worker_launch_stagger` à 0, le démarrage concentre jusqu'à 6 compilations. À surveiller
+dans le log avant d'incriminer le débit.

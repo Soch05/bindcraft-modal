@@ -168,6 +168,18 @@ Volume `bindcraft` monté sur `/outputs`, un répertoire par `run_name`. GPU par
 (46 Go vérifiés), surchargeable par la variable d'environnement `GPU`. Tarif L40S mesuré :
 **$0,000542/s = $1,95/h**.
 
+**Parallélisation : pas de sharding, BindCraft 2.0 le fait lui-même.** `workers_per_gpu` vaut
+`auto`, ce qui donne **3 workers concurrents** sur une L40S pour notre cible — calculé le
+3 octobre sur la formule de `bindcraft/design_workers.py`, 11,7 à 13,4 Go par worker pour
+253–293 résidus. Deux variables dans `modal_bindcraft2.py` : `WORKERS` (→ `workers_per_gpu`,
+mettre `1` pour mesurer un temps par trajectoire) et `GPU_COUNT` (→ `gpu="L40S:N"`, N cartes
+dans **un** conteneur, `auto_multi_gpu` répartissant seul).
+
+**⚠️ Ne pas restaurer le sharding de BindCraft 1** (`shard-000`, `shard-001`…) : sur 2.0
+chaque shard serait une campagne indépendante chassant son propre
+`number_of_final_designs` — N shards = N × les designs et N × le coût — et l'échelle de
+désespoir est comptée au niveau campagne, pas du processus.
+
 Les poids AF2 sont **dans l'Image et non dans le Volume** — choix de l'ancien build,
 reproduit, et que l'amont recommande lui aussi (`--build-arg ALPHAFOLD_PARAMETERS=bake`).
 La couche de téléchargement est placée après l'install et avant la vérification finale, pour
