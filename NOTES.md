@@ -2555,3 +2555,39 @@ un design accepté à seuil abaissé est un candidat plus faible pour une valida
 Le levier est le nombre de squelettes échantillonnés. À $0,30 la trajectoire complète et
 $0,09 la morte précoce, **30 trajectoires coûtent de l'ordre de $5** et donneraient un vrai
 taux d'acceptation. C'est le prochain run.
+
+---
+
+## 3 octobre — run `egfr-dIII-prod01` : prédictions écrites AVANT le lancement
+
+Pratique du 2 octobre reprise : écrire les prédictions avant, les confronter après. Le run
+porte 30 trajectoires avec **tous les réglages identiques à `cal01`** sauf deux :
+`--workers auto` (au lieu de 1) et `--max-trajectories 30` (au lieu de 3).
+
+**Pourquoi ne rien changer d'autre** : `initial_guess` serait le candidat évident pour
+attaquer l'écart de 0,124, mais le changer en même temps que l'échelle rendrait les deux
+effets inséparables. Ce run mesure le taux d'acceptation **de la configuration qu'on vient de
+caractériser**. Une chose à la fois.
+
+Paramètres : L40S, `BUDGET_USD=6` → timeout 11077 s = 3,08 h de plafond dur.
+`number_of_final_designs` reste à 12, donc la campagne s'arrêtera avant 30 trajectoires si
+12 designs passent.
+
+| # | prédiction | fondement |
+|---|---|---|
+| 1 | **50 à 70 %** des trajectoires meurent à un plancher d'étage avant d'atteindre ProteinMPNN | 2 sur 3 dans `cal01`, échantillon minuscule |
+| 2 | **0 à 2 designs acceptés** sur 30 trajectoires | le meilleur candidat de `cal01` était à 0,67 contre 0,70, et l'acceptation se décide au squelette |
+| 3 | le meilleur `i_pTM` tous candidats confondus tombera entre **0,68 et 0,72** | extrapolation de la queue de distribution depuis 10 candidats d'un seul squelette |
+| 4 | temps mural **1,0 à 2,0 h** | entre l'absence de contention (0,8 h) et une contention totale à 3 workers (2,5 h) |
+| 5 | coût réel **$2 à $4** | 10 complètes à $0,30 + 20 précoces à $0,09 ≈ $4,8 en série ; moins si la concurrence rapporte |
+| 6 | `Hotspot_Contact_Fraction` **variera** d'un squelette à l'autre | sa constance dans `cal01` était *intra*-squelette, les 10 séquences héritant d'une seule pose |
+
+**Ce que le run permet de décider** : si la prédiction 2 se vérifie à 0, le seuil d'`i_pTM`
+devient le sujet et il faudra arbitrer entre l'abaisser — en le documentant — et attaquer
+l'écart de généralisation par `initial_guess`. Si 1 ou 2 passent, le levier est purement le
+volume de trajectoires et le chiffrage de la prédiction 5 dit combien en acheter.
+
+La prédiction 4 est la seule qui mesure quelque chose de neuf sur Modal : **est-ce que
+3 workers sur une carte réduisent le coût, ou seulement le temps mural ?** Les temps `design`
+par trajectoire sont directement comparables à la série de `cal01` (430,5 / 239,3 / 101,5 s).
+S'ils sont inchangés, la concurrence est un gain net. S'ils triplent, elle ne rapporte rien.
