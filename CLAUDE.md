@@ -130,7 +130,7 @@ tous les chiffres de débit de [NOTES.md](NOTES.md) y sont attachés :
 | taux de relaxation | 3/6 | **caduc** : `relax_accepted_designs` est à `false` par défaut, le relax n'est plus PyRosetta |
 | `check_n_trajectories` ne compte que `Relaxed` | établi | **caduc** : plus de code correspondant, voir §2 |
 | filtre dominant : `i_pAE`, 20 rejets sur 29 | établi | **à re-mesurer** — mais les noms de filtres ont changé |
-| noms de colonnes de `failure_csv.csv` | établis | **caduc** : les sorties s'appellent désormais `trajectories.csv`, `candidates.csv`, `accepted.csv` |
+| noms de colonnes de `failure_csv.csv` | établis | **caduc** : voir la structure des sorties ci-dessous |
 | seuils de `default_filters.json` | non lus | **lus**, dans `settings/core/default.json` — valeurs en §6 |
 
 **Ce qui est établi sur 2.0** (lu dans la source au commit épinglé, 3 octobre) :
@@ -161,6 +161,38 @@ faut garder :
   install classique ne copierait que le paquet et les orphelinerait.
 
 **Valider le build avant toute dépense** (§8) : `modal run modal_bindcraft2.py::selfcheck`.
+
+### Structure des sorties — établie au run `egfr-dIII-cal01` du 3 octobre
+
+Lue dans `bindcraft/campaign_output.py` **et** confirmée par le log du run. Trois étages, pas
+un dossier plat :
+
+```
+/outputs/<run_name>/
+├── 1_Trajectories/!_Trajectories.csv     une ligne par trajectoire
+├── 2_Refolded/!_Refolded.csv             candidats ProteinMPNN repliés
+├── 3_Ranked/!_Ranked.csv                 réécrit à CHAQUE design accepté
+├── accepted.csv
+├── summary.csv                           écrit à la FIN de la campagne
+├── .campaign_state.json                  état de campagne, pas de processus
+├── campaign_metadata.json                réglages réellement utilisés — à garder
+└── settings.json                          écrit par modal_bindcraft2.py
+```
+
+`summary.csv` a les colonnes `campaign, scope, metric, samples, mean, std, min, max`.
+
+**Rien de commun avec BindCraft 1** — plus de `Accepted/Ranked/`, `Trajectory/Relaxed/`,
+`Rejected/`, `failure_csv.csv`, `final_design_stats.csv` ni `trajectory_stats.csv`. Vérifié
+le 3 octobre : **aucun script suivi du dépôt ne référence ces anciens noms**, donc rien à
+réécrire côté code. Les occurrences restantes sont dans NOTES.md, qui est un journal et doit
+les garder.
+
+⚠️ **Correction d'une erreur de ma part** : une version antérieure de ce fichier annonçait
+`trajectories.csv`, `candidates.csv`, `accepted.csv`. C'était déduit de la liste de
+constantes `CAMPAIGN_OUTPUT_NAMES` et non de la structure réelle. Le run a tranché.
+
+Le nom d'un design encode campagne, modalité, longueur et hash de recette :
+`egfr-dIII-cal01_denovo_l69_876123b3938b459b`.
 
 ### Exécution : Modal
 
@@ -398,7 +430,7 @@ Vérifier l'échelle avant toute comparaison ou tout seuil copié d'un papier.
 
 | filtre | seuil | sens |
 |---|---|---|
-| `Unbound_Binder_pLDDT` | **0,80** | plus haut est mieux |
+| `Unbound_Binder_pLDDT` | **0,70** | plus haut est mieux — ⚠️ `default.json` dit 0,80, mais le preset `binder` l'écrase par `min_monomer_plddt_final: 0.7`. Valeur lue dans `campaign_metadata.json` du run `cal01`, qui est la source autoritative. |
 | `pTM` | **0,55** | plus haut est mieux |
 | `i_pTM` | **0,70** | plus haut est mieux |
 | `i_pAE` | **0,35** | plus bas est mieux |

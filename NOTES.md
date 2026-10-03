@@ -2434,3 +2434,124 @@ d'environnement, ce qui est légitime puisqu'elles ne servent qu'aux décorateur
 **La garde de reproductibilité a fonctionné au passage** : le dossier du run avorté portait
 un `settings.json` à `workers_per_gpu: "auto"`, donc un relancement à `--workers 1` aurait
 été refusé pour dérive. Supprimé du Volume avant de relancer.
+
+---
+
+## 3 octobre — run `egfr-dIII-cal01` : 0 accepté sur 3, et le goulot n'est pas celui qu'on croyait
+
+Premier vrai run sur BindCraft 2.0. App `ap-pO6Fl3Dxy9DPjYLJv36aj3`, L40S, `--workers 1`
+(série), `--max-trajectories 3`, `BUDGET_USD=3` → timeout 5538 s. **Le budget n'a pas été
+atteint**, la campagne s'est arrêtée d'elle-même sur son plafond de trajectoires.
+
+### Chiffrage — enfin des nombres sur 2.0
+
+Il existe une colonne **`Timing`** dans `1_Trajectories/!_Trajectories.csv`, au format
+`worker=0;start=<epoch>;design=<secondes>;compiled=<0|1>`. Tarif L40S $0,000542/s.
+
+| traj | longueur | `design` | compilé | arrêt | durée réelle | coût |
+|---|---|---|---|---|---|---|
+| 1 | 69 | 430,5 s (7,2 min) | **oui** | va au bout | **559,5 s** (9,32 min) | **$0,303** |
+| 2 | 58 | 239,3 s (4,0 min) | non | `mutate` | 241,0 s (4,02 min) | $0,131 |
+| 3 | 65 | 101,5 s (1,7 min) | non | `screen` | 101,5 s (1,7 min) | $0,055 |
+
+**Total des 3 trajectoires : 902 s = 15,03 min = $0,489** de GPU, plus le démarrage du
+conteneur et la préparation de la cible — run complet autour de **$0,55**.
+
+Deux écarts à noter contre `c0a48d5` : la trajectoire complète inclut 431 s de gradient
+**plus ~129 s de redesign ProteinMPNN et de validation** des 10 candidats, et le coût par
+trajectoire complète ($0,303) est très proche des $0,33 par tentative de BindCraft 1. Ce
+n'est pas une accélération — c'est une architecture différente au même prix.
+
+**Le coût est bimodal** : $0,30 pour une trajectoire qui va au bout, $0,09 en moyenne pour
+une qui meurt à un plancher d'étage. Un coût moyen n'a de sens que pondéré par la proportion
+de morts précoces, et 2 sur 3 ici n'est pas une statistique.
+
+**⚠️ Non mesuré : ce que la concurrence rapporte vraiment.** Avec `--workers auto` (3 workers),
+3 trajectoires partagent une carte. Si la carte est saturée en calcul, chacune tourne ~3× plus
+lentement et **il n'y a aucun gain de coût** — seulement du gain de temps mural si la carte
+est limitée par la latence ou la mémoire. C'est l'objet du run suivant.
+
+### Le résultat : 0 accepté sur 3
+
+BindCraft le dit lui-même en terminant :
+
+> *campaign stopped: 3 trajectories ran and none were accepted, so the **settings** rather
+> than the budget are what to change*
+
+Deux modes d'échec distincts, et il faut les séparer :
+
+**(a) 2 trajectoires sur 3 ne produisent même pas un repliement confiant.** Traj 3 meurt au
+`screen` sur `pLDDT=0.55` (plancher 0,60), traj 2 au `mutate` sur `pLDDT=0.55` et
+`i_pTM=0.24` (planchers 0,60 et 0,50). Elles n'atteignent jamais ProteinMPNN.
+
+**(b) La seule qui va au bout perd 0,124 d'`i_pTM` entre le gradient et la validation.**
+C'est le point important :
+
+| | `i_pTM` | `i_pAE` |
+|---|---|---|
+| traj 1, mesurée par les modèles de **design** | **0,76** | **0,24** |
+| ses 10 candidats, par la **validation** | 0,636 (0,57–0,67) | 0,393 |
+| écart | **0,124** | **0,153** |
+
+**Les valeurs du gradient PASSENT les seuils** (≥0,70 et ≤0,35). Aucun des 10 candidats ne
+passe. Donc ce n'est pas « la cible est difficile » — le gradient trouve une pose correcte,
+et elle ne survit pas à l'évaluation tenue à l'écart.
+
+**Lecture la plus probable : c'est un écart de généralisation.** BindCraft impose que les
+modèles de design et de validation soient disjoints (« a design is never scored by a model
+that shaped it »), donc 0,76 est l'auto-évaluation des modèles qui ont optimisé, et 0,636
+le verdict de modèles tenus à l'écart. `redesign_interface` étant à `false`, ProteinMPNN n'a
+pas réécrit l'interface, ce qui affaiblit l'explication alternative d'une dégradation par
+le redesign.
+
+**Ce run ne peut pas séparer complètement les deux contributions** — la séquence change *et*
+elle est repliée à nouveau. `initial_guess` (re-prédire depuis la pose qu'a pliée la
+trajectoire) isolerait la part de la pose, et c'est le barreau 1 de l'échelle de désespoir.
+
+**Conséquence chiffrée et directement versable au dossier de méthodes** : le seuil de 0,70
+s'applique à la prédiction tenue à l'écart, donc une trajectoire doit atteindre **~0,82+ sur
+les modèles de design** pour espérer passer. C'est la préoccupation du §3 sur le re-scoring
+orthogonal, quantifiée de l'intérieur : sur cette cible, l'auto-évaluation d'AF2 surestime la
+confiance d'interface d'environ **0,12**.
+
+### Ce qui marche
+
+- **Le coldspot `A359` tient parfaitement** : `Coldspot_Contact_Fraction = 0.0` sur les 10
+  candidats, et il n'a causé aucun rejet. La ligne `coldspots=A359 residues=1` confirme la
+  résolution. Décision validée empiriquement.
+- **`aa_bias {"C": 0}` fonctionne** : `Binder_Cysteines = 0`, `Binder_Free_Cysteines = 0`.
+- `Interface_BuriedArea = 764,8 Å²` et `Epitope_Residues_Contacted = 10` sur traj 1 — l'
+  interface n'est pas maigre.
+- `Surface_Hydrophobicity = 0,33`, `Binder_Net_Charge = −6`, `pI = 4,2`.
+
+### Ce qui confirme la stratégie de tri a posteriori
+
+`Hotspot_Contact_Fraction = 0,25` sur les 10 candidats, soit **1 hotspot sur 4 contacté**, et
+`Off_Epitope_Contact_Fraction` entre 0,38 et 0,50. La dérive annoncée au §6 est mesurée.
+**Et ça valide le refus de `forced_targeting`** : son plancher par défaut est
+`min_hotspot_contact_final = 0.5`, donc ces designs auraient été rejetés une seconde fois.
+
+Note : la constance de ces fractions sur les 10 candidats vient de ce qu'une trajectoire
+produit **un** squelette dont les 10 séquences héritent de la pose. **L'acceptation se décide
+au niveau du squelette**, donc 3 trajectoires est un échantillon minuscule pour un taux
+d'acceptation — suffisant pour le temps, pas pour le rendement.
+
+### Correction de doc
+
+`Unbound_Binder_pLDDT` vaut **0,70** et non 0,80. 0,80 est la valeur de
+`settings/core/default.json`, mais le preset `binder` l'écrase par
+`min_monomer_plddt_final: 0.7`. Lu dans `campaign_metadata.json`, qui enregistre les réglages
+résolus et qui est la source autoritative. L'amont prévient que « les défauts changent avec la
+modalité choisie » — lu, et pas appliqué. CLAUDE.md §6 corrigé.
+
+Autre découverte : BindCraft maintient **lui-même** un `compile_cache/` dans le dossier de
+run, donc sur le Volume. L'option `--xla-cache` que j'avais ajoutée est largement redondante,
+et l'activer créerait un second cache concurrent du premier. Elle reste en opt-in, éteinte.
+
+### Décision pour la suite
+
+Ne **pas** baisser le seuil d'`i_pTM` : ce serait changer ce qui compte comme acceptable, et
+un design accepté à seuil abaissé est un candidat plus faible pour une validation en labo.
+Le levier est le nombre de squelettes échantillonnés. À $0,30 la trajectoire complète et
+$0,09 la morte précoce, **30 trajectoires coûtent de l'ordre de $5** et donneraient un vrai
+taux d'acceptation. C'est le prochain run.
