@@ -1919,3 +1919,49 @@ mécanismes pH** — l'acide pour une His du binder, et la His conservée pour u
 - **La troncature 309-506 est vérifiée sûre pour les cinq** : SASA identique à 0,0 Å² près
   entre chaîne A entière et domaine III isolé, contrôle étendu le 03/10 aux résidus de la
   zone B qui n'avaient jamais été testés.
+
+### Révision du 3 octobre : `A325` écarté, jeu final à quatre
+
+**Jeu retenu : `A318,A323,A406,A409`.** L325 est retiré pour la raison qui avait été
+identifiée comme son seul point faible : **son glycane à 7,3 Å**.
+
+Motif, et il est méthodologiquement le bon : `min_glyc` est mesuré au **CB du séquon**, pas à
+l'arbre glycanique, qui s'étend bien au-delà et reste flexible. La colonne **sous-estime donc
+l'occlusion de façon systématique** — 7,3 Å n'est pas une marge, c'est un risque. Et le séquon
+candidat (UniProt 352 = PDB 328) n'a jamais été vérifié dans PyMOL. Retenir L325 revenait à
+parier sur une vérification non faite.
+
+L'échange, chiffré :
+
+| | jeu à 5 | **jeu à 4 retenu** |
+|---|---|---|
+| ancres apolaires pures | I318 83 + T406 66 + L325 111 = **261 Å²** | I318 83 + T406 66 = **150 Å²** |
+| avec le cycle de H409 (double usage) | 343 Å² | **232 Å²** |
+| glycane min | **7,3** | **12,1** |
+| glycane médian | 15,0 | **17,4** |
+| glycane max | 21,1 | 21,1 |
+| identité | 5/5 | **4/4** |
+| étendue CA | 16,73 Å | **16,73 Å** — inchangée |
+| dFab min | 0,0 | 0,0 |
+
+**Le coût est réel : −43 % de surface d'empilement garantie**, de 261 à 150 Å². Le gain est de
+sortir le seul résidu à risque glycanique du jeu : le minimum passe de 7,3 à **12,1 Å** et la
+médiane de 15,0 à **17,4 Å**. Plus aucun hotspot sous 12 Å d'un séquon.
+
+Deux conséquences à noter :
+
+- **L'étendue ne change pas** (16,73 Å, fixée par 323↔409), donc retirer L325 ne libère aucune
+  place géométrique.
+- **`F357` ne redevient pas accessible** : F357↔H409 = 24,0 Å, inchangé. Le retrait de L325
+  n'ouvre rien de ce côté.
+- L'interface reposera donc largement sur le cycle imidazole de H409 (82 Å², double usage) et
+  sur ce que les trajectoires iront chercher **au-delà** des hotspots. C'est cohérent avec la
+  stratégie de tri a posteriori, et ça la rend plus nécessaire qu'avant.
+
+`L325` devient un **candidat coldspot** pour BindCraft 2.0, au même titre que `H359` : s'il est
+proche d'un glycane, autant l'écarter explicitement plutôt que de seulement ne pas le nommer.
+
+CLAUDE.md §5 et §8 mis à jour en conséquence. Les deux décisions successives — ajouter L325 le
+3/10 puis le retirer le même jour — sont conservées telles quelles dans ce journal : la
+première reposait sur le gain de surface, la seconde sur le fait que `min_glyc` sous-estime
+l'occlusion. Les deux sont défendables, la seconde est la prudente.

@@ -194,7 +194,7 @@ donc du Track 3.
 ### Le jeu de hotspots retenu
 
 ```
-A318,A323,A325,A406,A409
+A318,A323,A406,A409
 ```
 
 Décidé le 3 octobre, motifs complets dans NOTES.md. Résumé :
@@ -202,24 +202,31 @@ Décidé le 3 octobre, motifs complets dans NOTES.md. Résumé :
 | | |
 |---|---|
 | étendue CA | **16,73 Å** — la plus compacte de tous les jeux examinés |
-| identité humain/souris | **5/5** |
-| surface d'empilement | 261 Å² d'ancres apolaires pures (I318 83 + T406 66 + L325 111) |
+| identité humain/souris | **4/4** |
+| surface d'empilement | **150 Å²** d'ancres apolaires pures (I318 83 + T406 66), 232 Å² avec le cycle de H409 |
 | ancre pH acide | **D323** — carboxylate 75,0 Å², part 0,55, angle 33°, 89ᵉ centile |
 | His conservée de la cible | **H409** — mécanisme pH inversé, cycle imidazole à 44,7 Å² sur le seul CE1 |
-| glycane | min **7,3 Å** (L325), médian 15,0 |
+| glycane | min **12,1 Å**, médian 17,4, max 21,1 |
 | dFab | min **0,0 Å** (H409) — sur la surface ligand-compétitive |
 
 **Trois faits mesurés qui fondent ce jeu :**
-- retirer `A318` ne gagne aucun angström — l'étendue reste 16,73 Å, fixée par 323↔409 ;
-- `A325` s'ajoute sans coût géométrique et apporte +111 Å², soit **+74 %** de surface
-  d'empilement ;
-- **`F357` est exclu** : 24,0 Å de H409, donc mutuellement exclusifs. Le choix entre les
-  155,8 Å² de F357 et la His conservée H409 est tranché en faveur de H409, **parce que
-  l'objectif 1 passe avant le 3**.
+- retirer `A318` ne gagnerait aucun angström — l'étendue est fixée par 323↔409, donc le
+  quatrième résidu est gratuit et un jeu à 3 serait strictement pire ;
+- **`A325` a été envisagé puis écarté.** Il s'ajoutait sans coût géométrique et apportait
+  +111 Å² (150 → 261, soit +74 %), mais son glycane à **7,3 Å** aurait été le seul point
+  faible du jeu. `min_glyc` étant mesuré au CB du séquon et non à l'arbre glycanique, il
+  **sous-estime l'occlusion** : 7,3 Å est un risque réel, et le séquon candidat
+  (UniProt 352 = PDB 328) n'a jamais été vérifié. Écarté pour cette raison le 3 octobre ;
+- **`F357` est exclu** : 24,0 Å de H409, donc mutuellement exclusifs — et retirer L325 ne le
+  rend pas accessible. Le choix entre les 155,8 Å² de F357 et la His conservée H409 est
+  tranché en faveur de H409, **parce que l'objectif 1 passe avant le 3**.
 
-**Risque assumé** : le glycane de L325 à 7,3 Å, seul point faible du jeu — les quatre autres
-résidus sont entre 12,1 et 21,1 Å. Séquon candidat UniProt 352 = PDB 328, non vérifié.
-La corréférence de face n'est pas vérifiée non plus.
+**Ce que le jeu coûte** : 150 Å² d'ancres apolaires pures est modeste. L'interface reposera
+largement sur le cycle imidazole de H409 (82 Å², double usage) et sur ce que les trajectoires
+iront chercher au-delà des hotspots. C'est cohérent avec la stratégie de tri a posteriori (§6).
+
+**Non vérifié** : la corréférence de face des quatre résidus. 16,73 Å dit qu'ils sont proches,
+pas qu'ils regardent du même côté.
 
 **La troncature 309–506 est mesurée sûre** pour les cinq hotspots : SASA identique à 0,0 Å²
 près entre chaîne A entière et domaine III isolé. Là où elle mord, c'est aux bornes
@@ -374,7 +381,7 @@ avancer.
 1. [ ] **Installer et valider BindCraft 2.0 sur Modal.** Build, pins, poids AF2, structure des
        sorties. `jax.devices()` doit voir un GPU CUDA avant toute dépense.
 2. [ ] **Re-mesurer le débit** sur `inputs/6ARU_A_309-506.pdb` avec
-       `A318,A323,A325,A406,A409` et `--lengths 55,95` : temps par tentative, taux de
+       `A318,A323,A406,A409` et `--lengths 55,95` : temps par tentative, taux de
        relaxation, taux d'acceptation, profil de rejet, coût réel. Tous les chiffres de
        `c0a48d5` sont caducs (§3).
 3. [ ] **Vérifier si un kill par `TIMEOUT` commite le volume.** Une annulation le fait, c'est
