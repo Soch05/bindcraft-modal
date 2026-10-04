@@ -316,6 +316,18 @@ def campaign_settings(
         # concurrence sous laquelle la mesure a été prise. Vient d'un ARGUMENT et non d'une
         # variable d'environnement : voir le commentaire sur workers_per_gpu plus haut.
         "workers_per_gpu": workers,
+        # Garde 2 candidats validés par trajectoire au lieu d'1.
+        #
+        # Mesuré sur `prod01` le 3 octobre : 11 candidats sur 49 passaient le seuil `i_pTM`,
+        # 9 étaient marqués `ACCEPTED` dans le log, et **3 seulement ont été conservés**
+        # parce que le défaut est `kept_sequences = 1`. Six candidats qui passaient tous les
+        # filtres ont été jetés, pour du GPU déjà payé.
+        #
+        # ⚠️ Le gain n'est pas gratuit en nouveauté : les candidats d'une même trajectoire
+        # sont des variantes de séquence de la MÊME pose, donc des frères. Il faut
+        # clusteriser par squelette (le hash de recette dans le nom) avant de compter des
+        # designs indépendants pour la soumission.
+        "kept_sequences": 2,
         # Adaptyv exprime en acellulaire : pas de cystéines libres. Ce réglage les interdit
         # à la source plutôt que de les filtrer après coup.
         "aa_bias": {"C": 0},

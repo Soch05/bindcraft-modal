@@ -2891,3 +2891,38 @@ du dépôt amont dans l'image diffère donc du commit épinglé — probablement
 l'install éditable ou le `compile_cache`. Bénin a priori, mais ça affaiblit la revendication
 de reproductibilité au commit exact, et il faudrait identifier la source du `-dirty` avant de
 l'écrire dans le dossier de méthodes.
+
+---
+
+## 4 octobre 02:30 — run de nuit `egfr-dIII-prod02` : `kept_sequences = 2`
+
+**Changement d'hyperparamètre : `kept_sequences` 1 → 2**, écrit dans `campaign_settings()`.
+
+Motif mesuré sur `prod01` : **11 candidats sur 49 passaient le seuil `i_pTM`, 9 étaient
+marqués `ACCEPTED` dans le log, et 3 seulement ont été conservés** parce que le défaut est 1.
+Six candidats qui passaient tous les filtres ont été jetés, pour du GPU déjà payé. C'est le
+levier de rendement le moins cher du pipeline.
+
+**⚠️ Le gain n'est pas gratuit en nouveauté** : les candidats d'une même trajectoire sont des
+variantes de séquence de la **même pose**, donc des frères. Le hash de recette dans le nom du
+design (`…_denovo_l94_692deac2f1034bb6`) identifie le squelette : **clusteriser dessus avant
+de compter des designs indépendants pour la soumission.** C'est écrit dans le code à côté du
+réglage, pour que personne ne l'oublie en lisant la config.
+
+### Dimensionnement, sur les mesures de `prod01`
+
+| | |
+|---|---|
+| coût mesuré | $0,109 / trajectoire |
+| temps mesuré | 3,34 min / trajectoire à 2 workers |
+| `BUDGET_USD` | **16** → timeout **29538 s = 8,21 h**, plafond dur à $16 |
+| `--max-trajectories` | **150** → les deux plafonds coïncident à ~$16 |
+| `--n-designs` | **20**, le plafond de soumission : le run s'arrête avant s'il l'atteint |
+| trajectoires attendues | ~147 si le budget est la contrainte |
+
+Départ dimanche 02:30, fin au plus tard dimanche **10:42**. Clôture lundi 5 octobre 13:59,
+donc **27,3 h de marge** après le run. C'est confortable, et c'est ce qui permet de lancer
+huit heures sans risque sur l'échéance.
+
+Réglages inchangés par ailleurs : hotspots `A318,A323,A406,A409`, coldspot `A359`,
+`binder_lengths [55,95]`, `aa_bias {"C": 0}`, `--workers auto` (2 workers).
