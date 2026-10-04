@@ -52,9 +52,17 @@ rater une clôture, et le format AoE (UTC−12) la favorise.
 Tout est publié en open data sous ODC-BY, résultats négatifs compris. Chaque fichier du dépôt
 est écrit en supposant qu'un tiers le lira.
 
-**Critère de succès minimal** : un CSV de soumission reproductible depuis un commit, avec pour
-chaque séquence sa trajectoire de génération, ses métriques, et la raison de sa sélection —
-y compris l'argument pH.
+**Critère de succès minimal** : un CSV de soumission dont le **pipeline** est reproductible
+depuis un commit, avec pour chaque séquence sa trajectoire de génération, ses métriques, et la
+raison de sa sélection — y compris l'argument pH.
+
+⚠️ **Corrigé le 4 octobre** : ce critère disait « un CSV reproductible depuis un commit ».
+**C'est faux et c'est mesuré.** Rejouer le même commit ne redonne pas les mêmes designs :
+trois squelettes acceptés dans `prod01` (`i_pTM` 0,81–0,86) sont morts au `screen` ou au
+`mutate` dans `prod02`, à `campaign_seed` et hash de recette identiques. Les réductions GPU de
+JAX ne sont pas déterministes au bit près et une trajectoire de gradient est chaotique. Ce qui
+est reproductible est la **méthode**, pas les séquences — et il faut l'écrire ainsi dans le
+dossier plutôt que de revendiquer ce qui ne tient pas à la vérification. Détail dans NOTES.md.
 
 ---
 

@@ -3042,3 +3042,73 @@ Le `screen` reste le tueur dominant. L'effondrement à `harden` descend à 7 % (
 
 `Hotspot_Contact_Fraction` plafonne à **0,50** sur les acceptés — aucun ne dépasse 2 hotspots
 sur 4. Et `Off_Epitope_Contact_Fraction` monte à 0,55. La dérive hors épitope reste la règle.
+
+---
+
+## 4 octobre — `cal01` est-il utile ? Et une découverte sur la reproductibilité
+
+Question posée : faut-il garder `cal01`, ou ne regarder que `prod01` et `prod02` ?
+
+### Réponse courte
+
+| run | designs acceptés | utile pour la soumission | utile pour le dossier |
+|---|---|---|---|
+| `cal01` | **0** | **non** | **oui, et indispensable** |
+| `prod01` | 3 sur 3 squelettes | **oui** | oui |
+| `prod02` | 20 sur 10 squelettes | **oui** | oui |
+
+`cal01` n'a produit **aucun** design — il n'a même pas de dossier `3_Ranked`. Zéro matière
+pour le CSV.
+
+Mais il reste **indispensable au dossier de méthodes**, pour une raison précise : c'est le
+**seul run en série** (`--workers 1`). C'est lui qui donne la base de $0,163 par trajectoire,
+sans laquelle l'affirmation « la concurrence rapporte 1,86–1,89× » n'est pas une mesure mais
+une déclaration. Il a aussi établi la structure des sorties — le dernier inconnu de l'action 1
+— et donné le premier point de l'écart de généralisation (0,124), qui s'est révélé non
+représentatif, ce qui est en soi une leçon documentée sur l'échantillon de taille 1.
+
+### Et `prod01` n'est PAS redondant : 13 squelettes au total
+
+Aucun recouvrement entre les squelettes acceptés de `prod01` et ceux de `prod02`.
+**3 + 10 = 13 squelettes indépendants** disponibles pour la soumission, et non 10 comme je
+l'annonçais.
+
+### ⚠️ La découverte : les designs ne sont PAS reproductibles depuis un commit
+
+En vérifiant si `prod02` avait re-exploré les squelettes de `prod01`, j'ai trouvé ceci. Mêmes
+réglages, même `campaign_seed = 0`, **même hash de recette**, un seul paramètre différent
+(`kept_sequences`, qui n'intervient qu'après le gradient) :
+
+| hash de recette | `prod01` | `prod02` |
+|---|---|---|
+| `1e7ab6d8f00c9958` | va au bout, 3 candidats `i_pTM` **0,83–0,86**, **accepté** | **mort au `screen`** |
+| `692deac2f1034bb6` | va au bout, 3 candidats **0,82–0,84**, **accepté** | **mort au `mutate`** |
+| `f6d5f550a210fd48` | va au bout, 3 candidats **0,81–0,82**, **accepté** | va au bout, 10 candidats **0,12–0,40**, **zéro accepté** |
+
+Ce n'est pas une dérive numérique marginale. C'est « accepté à 0,86 » contre « mort au
+premier étage ».
+
+**Cause** : les réductions GPU de JAX/XLA ne sont pas déterministes au bit près, et une
+trajectoire de design par gradient est **chaotique** — une différence de 1e-7 au pas 1 devient
+un repliement entièrement différent au pas 50. L'amont le dit, et je l'avais cité sans en
+tirer la conséquence : `campaign_seed` « rend les tirages de trajectoires et de modèles
+reproductibles **dans le même setup** ; il ne promet pas des résultats numériques identiques
+d'un environnement à l'autre ». Ici ce n'est même pas d'un environnement à l'autre — c'est la
+même image, le même type de carte, deux runs. **La divergence est intra-environnement.**
+
+**Conséquences, et elles sont lourdes :**
+
+1. **Le critère de succès minimal du §1 est faux tel qu'il est écrit.** « Un CSV de soumission
+   reproductible depuis un commit » : rejouer le commit ne redonnera **pas** ces séquences.
+   Ce qui est reproductible, c'est le **pipeline** et la **méthode**, pas les designs. À
+   corriger dans CLAUDE.md et à énoncer franchement dans le dossier.
+2. **Les 13 squelettes sont un tirage, pas une sortie déterministe.** Le taux d'acceptation de
+   0,35 design/trajectoire est une propriété de la distribution, pas de graines précises.
+3. **Ça explique la part du gain prod01→prod02 que je ne savais pas attribuer.** J'avais écrit
+   « une part vient de la loterie des squelettes » — c'est confirmé, et la loterie est large.
+4. **Ça justifie de garder les designs de `prod01`** : ce ne sont pas des doublons de
+   `prod02`, c'est un tirage distinct que `prod02` n'a pas su reproduire.
+
+C'est une limite honnête et mesurée que peu de soumissions rapporteront. Elle a plus de valeur
+dans le dossier qu'une revendication de reproductibilité qui ne tiendrait pas à la
+vérification.
