@@ -2823,3 +2823,71 @@ sans `aa_bias {"H": 2}`**, et la route n°2 a largement la matière avec 20 acid
 
 Toujours non mesuré : l'appariement géométrique. C'est l'action 6 et elle attend les
 structures.
+
+---
+
+## 4 octobre — appariement His–acide mesuré : un design porte un vrai mécanisme pH
+
+Action 6 du §8, jamais faite. [his_acid_pairing.py](his_acid_pairing.py) sur les trois `.cif`
+de `prod01/3_Ranked`. Critère de pont salin : **atomes chargés à ≤ 4,0 Å**, convention de
+Barlow & Thornton. Seuil large de 6,0 Å pour les quasi-contacts, **posé et non calibré**.
+
+Note technique : les `.cif` de BindCraft 2.0 n'ont pas de colonne `_atom_site.occupancy`,
+donc le parseur mmCIF de Biopython échoue dessus. Le script lit la boucle `_atom_site`
+directement, en se repérant sur les noms de colonnes déclarés. Les métadonnées
+`_bindcraft.binder_chains = B` / `target_chains = A` donnent les rôles, et l'`auth_seq_id`
+conserve la numérotation PDB d'origine — premier résidu de cible à 309, comme attendu.
+
+### Le résultat
+
+| design | route 1 (His binder → D323) | route 2 (acide binder → H409) |
+|---|---|---|
+| rank 1, l64 | **impossible** — 0 His dans la séquence | meilleure distance **10,30 Å** → trop loin |
+| rank 3, l55 | **impossible** — 0 His dans la séquence | meilleure distance **10,29 Å** → trop loin |
+| **rank 2, l94** | non — H46 est à **28,39 Å** de D323 | **DOUBLE PONT SALIN** |
+
+Le détail du rank 2 :
+
+```
+ASP56:OD2  --  HIS409:NE2    2.52 A    PONT SALIN
+GLU73:OE1  --  HIS409:ND1    3.35 A    PONT SALIN
+```
+
+**Deux acides du binder engagent les deux azotes de l'imidazole de H409.** Ce n'est pas un
+contact marginal unique, c'est un arrangement bidenté sur les deux sites de protonation.
+
+**La polarité est la bonne** : à pH 6,5 H409 est davantage protonée, donc chargée
+positivement, et les ponts salins avec les carboxylates du binder sont renforcés ; à pH 7,4
+elle est majoritairement neutre et ils s'affaiblissent. C'est bien un **gain de liaison à pH
+6,5**, ce que le règlement demande. Et H409 est `identical` chez la souris, donc cette route
+sert aussi l'objectif n°2.
+
+### Ce que ça invalide dans mon analyse précédente
+
+J'avais noté que le rank 2 portait `H46` à l'interface **et** touchait `D323`, et j'en avais
+fait « le seul candidat pour la route 1 ». **La mesure dit non : 28,39 Å.** Les deux résidus
+apparaissent bien dans les listes d'interface, mais sur des parties opposées de celle-ci.
+C'est la confirmation que **la co-occurrence dans une liste d'interface ne dit rien de la
+géométrie** — j'avais posé la réserve, elle était justifiée.
+
+Et les routes 2 des rank 1 et 3 échouent malgré 15 et 11 groupes acides respectivement :
+avoir beaucoup d'acides ne sert à rien s'aucun n'est positionné sur H409. Le dénominateur
+confortable mesuré hier (20 acides médians) ne se traduit pas en appariement.
+
+### Ce qu'il ne faut pas enjoliver dans le dossier
+
+- **1 design sur 3**, pas un lot pH-dépendant ;
+- le **pKa réel de H409 dans son environnement structural est inconnu**. Une His enfouie à une
+  interface peut avoir un pKa décalé, dans un sens ou dans l'autre ;
+- un double pont salin donne un **décalage de KD d'un facteur quelques-uns**, pas le
+  « no detectable binding » du règlement. CLAUDE.md §6 le disait déjà, la mesure ne change
+  pas cette réserve ;
+- rien ici n'est validé expérimentalement, et tout repose sur une structure prédite par AF2.
+
+### Détail annexe à surveiller
+
+Les trois `.cif` portent `_bindcraft.bindcraft_revision = a8d0f200…-dirty`. L'arbre de travail
+du dépôt amont dans l'image diffère donc du commit épinglé — probablement l'`egg-info` de
+l'install éditable ou le `compile_cache`. Bénin a priori, mais ça affaiblit la revendication
+de reproductibilité au commit exact, et il faudrait identifier la source du `-dirty` avant de
+l'écrire dans le dossier de méthodes.

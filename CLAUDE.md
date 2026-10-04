@@ -41,8 +41,13 @@ commun et un modèle sélectionne sur qualité prédite, nouveauté du design et
 méthode**, avec ~375 places pour ~1500 designs. Le dossier de méthodes est le canal de
 sélection, pas un livrable annexe.
 
-**Échéance dure : 4 octobre 23:59 AoE = dimanche 5 octobre 13h59 Paris.** Aujourd'hui
-3 octobre. Ce chiffre prime sur toute considération d'élégance.
+**Échéance dure : 4 octobre 23:59 AoE = LUNDI 5 octobre 13h59 Paris.** Ce chiffre prime sur
+toute considération d'élégance.
+
+⚠️ **Bug corrigé le 4 octobre** : ce fichier écrivait « dimanche 5 octobre ». La date était
+juste, le **nom du jour faux** — le 5 octobre 2026 est un **lundi**. Tout le calcul de marge
+du §8 en héritait et était décalé d'un jour. C'est exactement le genre d'erreur qui fait
+rater une clôture, et le format AoE (UTC−12) la favorise.
 
 Tout est publié en open data sous ODC-BY, résultats négatifs compris. Chaque fichier du dépôt
 est écrit en supposant qu'un tiers le lira.
@@ -575,9 +580,13 @@ avancer.
        `target=… coldspots=… residues=N` qui dit combien ont été résolus.
 5. [ ] **Multicible** : trouver ou modéliser le domaine III de Q01279. Sans ça, pas de
        multicible, et l'objectif n°2 reste un filtre a posteriori.
-6. [ ] **Mesurer l'appariement His–acide** sur les structures des designs acceptés : une His du
-       binder à portée de D323, ou un Asp à portée de H409. C'est l'objectif n°1 et il n'a
-       jamais été mesuré.
+6. [x] **Mesurer l'appariement His–acide.** FAIT le 4 octobre,
+       [his_acid_pairing.py](his_acid_pairing.py) sur les 3 designs de `prod01`.
+       **1 design sur 3 porte un mécanisme pH mesuré**, et c'est un double pont salin :
+       `ASP56:OD2–HIS409:NE2` à **2,52 Å** et `GLU73:OE1–HIS409:ND1` à **3,35 Å**, soit les
+       deux azotes de l'imidazole engagés. Critère : 4,0 Å entre atomes chargés
+       (Barlow & Thornton). La **route 1 est morte partout** : 2 designs sur 3 n'ont aucune
+       His, et la seule His d'interface est à 28,4 Å de D323. Détail dans NOTES.md.
 7. [ ] Câbler le prédicteur orthogonal. Jamais fait.
 8. [ ] Rédiger le dossier de méthodes **en parallèle des runs**, pas à la fin. NOTES.md en est
        la matière première ; `docs/ARCHITECTURE.md` §4 contient déjà l'inventaire des
