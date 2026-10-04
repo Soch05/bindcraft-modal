@@ -2926,3 +2926,119 @@ huit heures sans risque sur l'échéance.
 
 Réglages inchangés par ailleurs : hotspots `A318,A323,A406,A409`, coldspot `A359`,
 `binder_lengths [55,95]`, `aa_bias {"C": 0}`, `--workers auto` (2 workers).
+
+---
+
+## 4 octobre 06:05 — run `egfr-dIII-prod02` : 20 designs, mais 10 squelettes
+
+App `ap-5MJpSXt3QmncrmDRpc9x4d`. Départ 02:49, `campaign done` à ~06:05, **3,35 h**.
+Terminé sur `--n-designs 20`, donc **le plafond de designs**, pas le budget ($6,54 contre
+$16 autorisés) ni les 150 trajectoires.
+
+### Le run a planté APRÈS avoir réussi
+
+```
+campaign done: 20 accepted design(s) after 58 trajectories, ranked by i_pDAE
+volume commité : /outputs/egfr-dIII-prod02
+Traceback (most recent call last):          <- après coup
+... CalledProcessError ... exit status 245
+```
+
+En amont, une panne matérielle de la carte :
+
+```
+[gpu-health] [WARN] Xid 31, MMU Fault: ENGINE GRAPHICS GPC5 ...
+                    Fault is of type FAULT_PDE ACCESS_TYPE_VIRT_READ
+```
+
+Un Xid 31 est une violation d'accès mémoire côté GPU. La campagne a continué et abouti, puis
+le processus est mort à la sortie sur un contexte CUDA corrompu. **Coût réel de l'incident :
+zéro** — le `finally` avait commité le volume, et les 20 `.cif` plus toutes les tables sont
+intacts. C'est la validation de l'architecture de commits : sans le `finally` et les commits
+périodiques toutes les 300 s, 3,35 h de GPU partaient à la poubelle.
+
+À retenir : **un `exit status` non nul ne veut pas dire que le run a échoué.** Il faut lire
+`campaign done` dans le log avant de conclure. Et réciproquement, un exit 0 ne prouve rien —
+c'était déjà écrit au §7.
+
+### Confrontation prod01 / prod02 — un seul paramètre a changé
+
+| | prod01 | prod02 | facteur |
+|---|---|---|---|
+| `kept_sequences` | 1 | **2** | |
+| trajectoires | 30 | 57 | |
+| candidats repliés | 49 | 115 | |
+| **designs acceptés** | **3** | **20** | 6,7× |
+| **squelettes productifs** | **3** | **10** | 3,3× |
+| acceptation / candidat | 6,1 % | **17,4 %** | 2,9× |
+| designs / trajectoire | 0,10 | **0,35** | 3,5× |
+| `i_pTM` médian des candidats | 0,41 | 0,56 | |
+| coût total | $3,26 | $6,54 | |
+| coût / trajectoire | $0,109 | **$0,115** | stable |
+| **coût / design accepté** | $1,09 | **$0,33** | **0,30×** |
+| `somme(design)/mur` | 1,89× | 1,86× | stable |
+| écart de généralisation médian | 0,278 | 0,234 | |
+| route 2 pH établie | 1/3 | **10/20** | |
+
+**Attribution honnête** : `kept_sequences = 2` ne peut expliquer au mieux qu'un facteur 2.
+Or l'acceptation **par candidat** est passée de 6,1 % à 17,4 %, et ce réglage ne touche pas
+ce taux-là. Donc une part du gain vient de la **loterie des squelettes** sur un échantillon
+presque deux fois plus grand : 16 trajectoires sur 57 sont allées au bout (28 %) contre 7 sur
+30 (23 %), et le `i_pTM` médian des candidats est monté de 0,41 à 0,56. **Je ne peux pas
+séparer proprement les deux contributions avec ces deux runs.** Ce qui est sûr et mesuré :
+le coût par design accepté a chuté de $1,09 à $0,33.
+
+### ⚠️ Le point qui compte pour la soumission : 20 designs, 10 squelettes
+
+| squelette | long. | `i_pTM` | **identité entre frères** | hotspots |
+|---|---|---|---|---|
+| `cd272a8fd929c7ee` | 61 | 0,81–0,84 | 67 % | 0,25 |
+| `987fe804e455bc58` | 63 | 0,83–0,83 | **86 %** | 0,50 |
+| `5c3ec1903e03c261` | 92 | 0,81–0,82 | 67 % | 0,25 |
+| `fd5dae7987a2388d` | 58 | 0,82–0,82 | 76 % | 0,50 |
+| `5b295c4d9e1ff73f` | 73 | 0,80–0,81 | 81 % | 0,25 |
+| `a6d2f6834f22e574` | 62 | 0,80–0,81 | **85 %** | 0,25 |
+| `a6334a3a912c86f1` | 61 | 0,81–0,81 | 82 % | 0,25 |
+| `36dbfc4737a3e59b` | 59 | 0,76–0,77 | 80 % | 0,50 |
+| `9526c9216eb7d6db` | 57 | 0,71–0,76 | **88 %** | 0,25 |
+| `4a818d7951649b77` | 64 | 0,73–0,75 | 81 % | 0,25 |
+
+**Identité de séquence entre frères : 67 % min, 81 % médian, 88 % max.**
+
+La réserve écrite dans le code s'est matérialisée exactement comme annoncé. **Il y a
+10 designs indépendants, pas 20.** Remplir les 20 places reviendrait à occuper la moitié du
+quota avec des séquences identiques à 81 % en médiane — sur un critère de nouveauté de
+design, c'est du gaspillage de place.
+
+### Mécanisme pH : 10 designs sur 20, soit **5 squelettes sur 10**
+
+`his_acid_pairing.py` sur les 20 `.cif`. Les verdicts vont **par paires** — `seq0` et `seq1`
+d'un même squelette partagent la pose, donc la même géométrie d'appariement. Route 2 établie
+sur 5 squelettes : `9526c9216eb7d6db`, `fd5dae7987a2388d`, `36dbfc4737a3e59b`,
+`987fe804e455bc58`, `5c3ec1903e03c261`. **Route 1 : zéro, partout.** Cohérent avec la matière
+mesurée — His médiane 0, et 61 candidats sur 115 sans aucune histidine.
+
+### Funnel sur 57 trajectoires
+
+| sortie | n | part |
+|---|---|---|
+| mortes au `screen` | 16 | 28 % |
+| **allées au bout** | **16** | **28 %** |
+| mortes au `final` | 8 | 14 % |
+| mortes au `mutate` | 6 | 11 % |
+| mortes au `harden` | 4 | 7 % |
+| mortes à l'`anneal` | 4 | 7 % |
+| mortes au `refine` | 3 | 5 % |
+
+Le `screen` reste le tueur dominant. L'effondrement à `harden` descend à 7 % (contre 13 % sur
+`prod01`) — la piste `harden_steps` se confirme comme secondaire.
+
+### Qualité des 20 designs
+
+`i_pTM` 0,71–0,84 (médiane 0,81), `i_pAE` 0,18–0,32, `pTM` 0,87–0,90,
+`Unbound_Binder_pLDDT` 0,74–0,95, `Interface_Residues` 13–23,
+`Interface_BuriedArea` 558–1220 Å², `Surface_Hydrophobicity` 0,18–0,29,
+`Binder_Free_Cysteines` 0 partout, `Coldspot_Contact_Fraction` **0,0 sur les 115 candidats**.
+
+`Hotspot_Contact_Fraction` plafonne à **0,50** sur les acceptés — aucun ne dépasse 2 hotspots
+sur 4. Et `Off_Epitope_Contact_Fraction` monte à 0,55. La dérive hors épitope reste la règle.
