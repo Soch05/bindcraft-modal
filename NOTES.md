@@ -3112,3 +3112,80 @@ même image, le même type de carte, deux runs. **La divergence est intra-enviro
 C'est une limite honnête et mesurée que peu de soumissions rapporteront. Elle a plus de valeur
 dans le dossier qu'une revendication de reproductibilité qui ne tiendrait pas à la
 vérification.
+
+---
+
+## 5 octobre — correction : `bindcraft score` ne prédit RIEN. Et mutants acides générés.
+
+### La correction, et elle invalide un conseil que j'avais donné
+
+J'avais affirmé le 4 octobre que `bindcraft score` « fait une vraie prédiction », en le
+déduisant de la présence de `PREDICTED_METRICS` et `design_model_scores` dans ses imports.
+**C'est faux.** En lisant le corps de `bindcraft/score.py` :
+
+- `score_design()` construit `StructurePrediction(protein_complex=..., **metrics={}**)` — un
+  dictionnaire de métriques **vide**. Aucune prédiction n'est lancée ;
+- le module imprime lui-même, deux fois : *« `pLDDT, pTM, i_pTM, i_pAE` are readings of the
+  prediction: a design a campaign wrote carries them in its own stamp, and they are
+  **reported from there rather than recomputed** »* ;
+- `design_model_scores()` ne fait que `read_structure_metadata(structure)`.
+
+**Conséquence** : `bindcraft score` recalcule les métriques **géométriques** (aire enfouie,
+contacts, clashs, fractions hotspot/coldspot) mais **réaffiche** les métriques de confiance
+lues dans le tampon du fichier. Il ne peut donc pas valider une séquence modifiée : une
+comparaison avant/après montrerait des `i_pTM` identiques **parce qu'ils n'ont pas été
+recalculés**, pas parce que la mutation serait neutre. C'est exactement l'artefact qui ferait
+passer un lot pour validé alors qu'il ne l'est pas.
+
+Erreur de méthode de ma part : j'ai conclu sur des noms d'imports au lieu de lire le code.
+Dix lignes de plus suffisaient.
+
+### Numérotation vérifiée avant de muter
+
+La chaîne du binder commence à l'index **1** et la séquence reconstruite depuis le `.cif` est
+**identique** au `Binder_Sequence` du CSV sur les **23 designs**. Aucun décalage, donc
+`résidu N` dans la structure = `séquence[N-1]`. Vérifié avant de générer quoi que ce soit —
+une erreur d'index aurait placé les mutations au mauvais endroit en silence.
+
+### [acid_mutants.py](acid_mutants.py) — 12 mutations sur 7 squelettes
+
+Cherche, pour chaque design sans pont salin, le résidu dont le CB est le plus proche des
+azotes de l'imidazole de `H409`, et propose une substitution en carboxylate. Seuils dans le
+code : Asp si CB ≤ 5,0 Å, Glu si 5,0–7,0 Å (portée depuis le CB : Asp ~2,5 Å, Glu ~3,9 Å).
+Le coût de la substitution est classé — `conservative` pour Ser/Thr/Asn/Gln/Ala/Gly,
+`risquee` pour Lys/Arg/His/Tyr, `a eviter` pour les hydrophobes et Pro.
+
+| squelette | mutation | CB → H409 | coût |
+|---|---|---|---|
+| `f6d5f550a210fd48` | **S38D** | 3,81 Å | conservative |
+| `a6334a3a912c86f1` | **S15D** | 3,95 Å | conservative |
+| `a6d2f6834f22e574` | **S44D** | 4,27 Å | conservative |
+| `1e7ab6d8f00c9958` | **S28D** | 4,53 Å | conservative |
+| `cd272a8fd929c7ee` | **N21E** | 6,19 Å | conservative |
+| `5b295c4d9e1ff73f` | H23E | 5,36 Å | **risquée** |
+| `4a818d7951649b77` | P39D / F38D | 4,69 / 4,55 Å | **à éviter** |
+
+**8 mutations conservatives sur 5 squelettes**, 2 risquées, 2 à écarter. Les deux frères de
+`4a818d7951649b77` reçoivent des mutations différentes (P39D et F38D) parce que leurs
+séquences diffèrent à ces positions — signe que le script travaille bien sur les séquences
+réelles et non sur un modèle.
+
+### Feuille `selection` dans les classeurs
+
+`csv_to_workbook.py` joint désormais `3_Ranked`, les mutants et la conservation souris en une
+feuille `selection`, placée en premier : séquence d'origine et séquence mutée **côte à côte**,
+avec les trois objectifs en regard — `pH_etabli` et `pont_salin_A` pour le n°1,
+`souris_identiques` et `souris_divergents` pour le n°2, `i_pTM`/`i_pAE`/`i_pDAE`/BSA pour le
+n°3. 21 colonnes. Vérifié que `N21E` correspond à la seule différence réelle entre les deux
+séquences, position 21, longueurs égales.
+
+**⚠️ Écrit dans le docstring et à répéter ici** : les métriques de ces feuilles décrivent la
+séquence **d'origine**. Celles d'un mutant sont **inconnues** et ne peuvent pas être obtenues
+dans BindCraft. Un mutant est une hypothèse à faire scorer ailleurs.
+
+### `rank_designs.py` retiré
+
+Écrit puis supprimé le 5 octobre. Sa partie utile — conservation souris par interface,
+distance du pont salin, déduplication par squelette — est passée dans la feuille `selection`,
+où elle sert directement. Son classement opiniâtre n'avait pas à vivre dans le dépôt alors que
+la sélection finale est un arbitrage humain.

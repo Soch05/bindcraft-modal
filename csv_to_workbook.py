@@ -131,6 +131,71 @@ def campaign_tables(root: Path, losses: bool) -> list[tuple[str, Path]]:
     return tables
 
 
+def selection_sheet(root: Path) -> list[dict[str, str]]:
+    """Joint `3_Ranked`, les mutants acides et la conservation souris en une seule feuille.
+
+    C'est la feuille de travail pour choisir ce qui part dans le CSV de soumission : la
+    séquence d'origine et la séquence mutée côte à côte, avec les métriques et la
+    conservation en regard.
+
+    ⚠️ Les métriques décrivent la séquence **d'origine**. Celles d'un mutant sont inconnues
+    et ne peuvent pas être obtenues avec `bindcraft score`, qui réaffiche le tampon du
+    fichier au lieu de recalculer. Un mutant est une hypothèse à faire scorer ailleurs.
+    """
+    ranked = read_csv(root / "3_Ranked" / "!_Ranked.csv")
+    if not ranked:
+        return []
+    mutants = {r["design"]: r for r in read_csv(Path("out/mutants_acide.csv"))}
+    conservation = {
+        r["pdb_resnum"]: r for r in read_csv(Path("data/egfr_residues.csv"))
+    }
+
+    rows = []
+    for row in ranked:
+        residues = re.findall(r"[A-Z](\d+)", row.get("Interface_Target_Residues", ""))
+        identical = sum(
+            1 for n in residues if conservation.get(n, {}).get("status") == "identical"
+        )
+        divergent = [
+            f'{conservation[n]["aa_human"]}{n}>{conservation[n]["aa_mouse"]}'
+            for n in residues
+            if conservation.get(n, {}).get("status") == "different"
+        ]
+        mutant = mutants.get(f'{row["design"]}', {}) or mutants.get(
+            f'{row["design"]}_seq0', {}
+        )
+        rows.append(
+            {
+                "design": row["design"],
+                "hash_squelette": row["hash"],
+                "length": row["length"],
+                # objectif n°1
+                "pH_etabli": mutant.get("pH_deja_etabli", ""),
+                "pont_salin_A": mutant.get("pont_salin_existant_A", ""),
+                "mutation_proposee": mutant.get("mutation", ""),
+                "cout_substitution": mutant.get("cout_substitution", ""),
+                "CB_vers_H409_A": mutant.get("CB_vers_H409_A", ""),
+                # objectif n°2
+                "souris_identiques": f"{identical}/{len(residues)}",
+                "souris_divergents": ",".join(divergent) or "0",
+                # objectif n°3 — sur la sequence d'ORIGINE uniquement
+                "i_pTM": row.get("i_pTM", ""),
+                "i_pAE": row.get("i_pAE", ""),
+                "i_pDAE": row.get("i_pDAE", ""),
+                "Interface_BuriedArea": row.get("Interface_BuriedArea", ""),
+                "Interface_Residues": row.get("Interface_Residues", ""),
+                "Hotspot_Contact_Fraction": row.get("Hotspot_Contact_Fraction", ""),
+                "Unbound_Binder_pLDDT": row.get("Unbound_Binder_pLDDT", ""),
+                "Surface_Hydrophobicity": row.get("Surface_Hydrophobicity", ""),
+                "Binder_Net_Charge": row.get("Binder_Net_Charge", ""),
+                # les deux sequences, cote a cote
+                "Binder_Sequence": row.get("Binder_Sequence", ""),
+                "Binder_Sequence_mutee": mutant.get("Binder_Sequence_mutee", ""),
+            }
+        )
+    return rows
+
+
 def build(root: Path, losses: bool) -> Path | None:
     tables = campaign_tables(root, losses)
     if not tables:
@@ -139,6 +204,15 @@ def build(root: Path, losses: bool) -> Path | None:
 
     book = Workbook()
     book.remove(book.active)
+
+    # La feuille de sélection d'abord : c'est celle qu'on ouvre pour travailler.
+    selection = selection_sheet(root)
+    if selection:
+        add_sheet(book, "selection", selection)
+        with_mutation = sum(1 for r in selection if r["Binder_Sequence_mutee"])
+        print(f"    {'selection':<32} {len(selection):>5} lignes   "
+              f"dont {with_mutation} avec sequence mutee")
+
     for title, path in tables:
         rows = read_csv(path)
         add_sheet(book, title, rows)
