@@ -19,6 +19,10 @@ from pathlib import Path
 SOURCE = Path("submission/metadata/design_metrics.csv")
 OUT = Path("submission/DESIGN_METRICS.md")
 
+# Importe depuis build_submission pour que les deux fichiers ne puissent pas donner des
+# motifs differents pour un meme design.
+from build_submission import NOVELTY_REJECTED
+
 
 def short(name: str) -> str:
     return name.split("_denovo_")[1] if "_denovo_" in name else name
@@ -122,9 +126,15 @@ def main() -> None:
              "robust mechanism": 3}
     for r in sorted(held, key=lambda r: (order.get(r["ph_mechanism_tier"], 9),
                                          r["backbone_id"])):
-        reason = ("predicted counter-selective on the pH criterion"
-                  if r["ph_mechanism_tier"] == "counter-selective"
-                  else "a design on the same backbone ranked higher")
+        if r["design_id"] in NOVELTY_REJECTED:
+            # Motif exact : ce design etait MIEUX classe que celui qui l'a remplace. Ecrire
+            # « un design mieux classe existe sur ce squelette » serait faux.
+            reason = ("rejected by the platform novelty check, score 2/4 against a required "
+                      "3/4. It ranked above the design that replaced it on the same backbone")
+        elif r["ph_mechanism_tier"] == "counter-selective":
+            reason = "predicted counter-selective on the pH criterion"
+        else:
+            reason = "a design on the same backbone ranked higher"
         out.append(f"| `{short(r['design_id'])}` | `{r['backbone_id'][:10]}` | "
                    f"{r['ph_mechanism_tier']} | {r['dpka_h409_design_model']} / "
                    f"{r['dpka_h409_folding_model'] or '—'} / "

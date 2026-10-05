@@ -75,6 +75,20 @@ MUTANT_REQUIRES = {"mecanisme_robustesse": "robuste", "verdict_carboxylate": "VE
 # Le quota de 20 reste un plafond, jamais une cible.
 EXCLUDED_PH_TIERS = {"contre-selectif"}
 
+# DESIGNS REFUSES PAR LE CONTROLE DE NOUVEAUTE DE LA PLATEFORME.
+#
+# Proteinbase attribue un score de nouveaute a l'upload et exige au moins 3/4. Le 6 octobre,
+# `fd5dae7987a2388d_seq1` est ressorti a 2/4 et ne peut donc pas etre soumis. Le score est
+# calcule par la plateforme ; il n'est pas reproductible ici et n'est pas discute.
+#
+# Le design est retire par cette liste plutot qu'a la main, pour que la regle « un design par
+# squelette » reprenne naturellement le FRERE du refuse : meme squelette, sequence differente
+# a 24 %, metriques quasi identiques (dpKa -0,01 contre -0,07, epitope souris 0,806 contre
+# 0,812, meme i_pTM). Le squelette reste donc couvert.
+NOVELTY_REJECTED = {
+    "egfr-dIII-prod02_denovo_l58_fd5dae7987a2388d_seq1",
+}
+
 
 def rows(path: Path) -> list[dict]:
     return list(csv.DictReader(path.open(newline=""))) if path.is_file() else []
@@ -96,6 +110,11 @@ def select(candidates: list[dict]) -> tuple[list[dict], list[dict]]:
     """Un design par squelette, dans l'ordre du classement global déjà établi."""
     eligible, rejected = [], []
     for entry in candidates:
+        if entry["design_id"] in NOVELTY_REJECTED:
+            rejected.append({**entry, "motif":
+                             "refuse par le controle de nouveaute de la plateforme "
+                             "(score 2/4, minimum requis 3/4)"})
+            continue
         if entry.get("palier_pH") in EXCLUDED_PH_TIERS:
             rejected.append({**entry, "motif":
                              f"palier pH ecarte : {entry['palier_pH']} — la liaison est "

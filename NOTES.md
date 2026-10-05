@@ -3676,3 +3676,29 @@ nombre de champs par ligne. C'est le 9e contrôle de la liste.
 
 Leçon à garder : un contrôle qui déduit une propriété de l'absence d'un mot dans la sortie
 d'un outil tiers n'est pas un contrôle.
+
+### 6 octobre — un design refusé par le contrôle de nouveauté de la plateforme
+
+Proteinbase attribue un score de nouveauté à l'upload et exige **3/4 minimum**.
+`fd5dae7987a2388d_seq1` est ressorti à **2/4** et ne peut pas être soumis. Les cinq autres
+passent à 3/4. Le score est calculé par la plateforme, n'est pas reproductible ici, et n'est
+pas discuté.
+
+**Le squelette reste couvert.** Le refus est inscrit comme règle `NOVELTY_REJECTED` dans
+`build_submission.py` plutôt qu'en retirant une ligne à la main, ce qui laisse la règle « un
+design par squelette » reprendre naturellement le **frère** : `fd5dae7987a2388d_seq0`, même
+squelette, séquence différente à 24 %, métriques quasi identiques — ΔpKa −0,01 contre −0,07,
+épitope souris 0,806 contre 0,812, même i_pTM 0,82. La soumission reste à 6 designs sur
+6 squelettes, et le contrôle négatif reste au rang 6.
+
+⚠️ **Faux motif rattrapé avant envoi.** `DESIGN_METRICS.md` annonçait pour `seq1` « a design
+on the same backbone ranked higher ». C'est **faux** : seq1 était mieux classé que seq0, c'est
+la plateforme qui l'a écarté. Publier un motif erroné dans la table de l'entonnoir aurait ruiné
+ce à quoi cette table sert. `build_metrics_markdown.py` importe désormais `NOVELTY_REJECTED`
+depuis `build_submission.py`, pour que les deux fichiers ne puissent pas donner des motifs
+divergents pour un même design.
+
+**Pièces jointes du formulaire** (`.md` ou `.zip`, 5 max, 50 Mo chacun) : `METHODS.md` 34 Ko,
+`DESIGN_METRICS.md` 9,7 Ko, `egfr_metadata.zip` 2,0 Mo. Le texte du champ méthodologie est
+dans `METHODOLOGY_FIELD.txt`, 820 mots. Le sélecteur lit ces pièces, pas le dépôt : le paquet
+est donc auto-suffisant.

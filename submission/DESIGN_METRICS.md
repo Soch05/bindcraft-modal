@@ -16,7 +16,7 @@ Scales: `i_pTM`, `i_pAE`, ipSAE, contact recovery and epitope recovery are on [0
 | 2 | `l63_987fe804e455bc58_seq1` | 63 | **non-reproducible mechanism** | -0.29 / 0.97 / -0.7 | 0.848 | ASP52 3.21 Å at 119.5° | 4.54 |
 | 3 | `l59_36dbfc4737a3e59b_seq1` | 59 | **non-reproducible mechanism** | 0.96 / -0.17 / -0.38 | 2.599 | ASP24 3.08 Å at 85.9° | 3.34 |
 | 4 | `l61_cd272a8fd929c7ee_seq0` | 61 | **neutral** | -0.4 / -0.39 / -0.5 | 0.808 | GLU26 12.94 Å at 99.8° | no pair possible |
-| 5 | `l58_fd5dae7987a2388d_seq1` | 58 | **neutral** | -0.07 / -0.12 / -0.13 | 0.956 | GLU24 3.31 Å at 159.9° | no pair possible |
+| 5 | `l58_fd5dae7987a2388d_seq0` | 58 | **neutral** | -0.01 / -0.11 / -2.65 | 0.993 | GLU24 3.36 Å at 147.1° | no pair possible |
 | 6 | `l57_9526c9216eb7d6db_seq0` | 57 | **neutral** | 0.03 / -0.41 / -2.62 | 1.022 | ASP32 2.42 Å at 96.1° | no pair possible |
 
 ### Objective 2 — mouse cross-reactivity
@@ -27,7 +27,7 @@ Scales: `i_pTM`, `i_pAE`, ipSAE, contact recovery and epitope recovery are on [0
 | 2 | `l63_987fe804e455bc58_seq1` | 0.94 | -0.006 | **0.935** | lost in mouse | 0.87 | R353,I467,S468 |
 | 3 | `l59_36dbfc4737a3e59b_seq1` | 0.928 | -0.01 | **0.839** | not applicable | 0.81 | S324,S418,K443,S468 |
 | 4 | `l61_cd272a8fd929c7ee_seq0` | 0.933 | -0.008 | **0.92** | not applicable | 0.8 | S418,I467,S468 |
-| 5 | `l58_fd5dae7987a2388d_seq1` | 0.938 | 0.002 | **0.812** | not applicable | 0.778 | S324,S418,I467,S468 |
+| 5 | `l58_fd5dae7987a2388d_seq0` | 0.944 | 0.007 | **0.806** | not applicable | 0.789 | S324,S418,I467,S468 |
 | 6 | `l57_9526c9216eb7d6db_seq0` | 0.851 | -0.069 | **0.479** | not applicable | 0.778 | R353,S418,I467,S468 |
 
 ### Objective 3 — interface quality, and independent checks
@@ -38,7 +38,7 @@ Scales: `i_pTM`, `i_pAE`, ipSAE, contact recovery and epitope recovery are on [0
 | 2 | `l63_987fe804e455bc58_seq1` | 0.83 | 0.19 | 1049.0 | 0.5 | 0.3 | 0.9193 / 0.8126 | 0.7454 | 0.935 | 0.6171 |
 | 3 | `l59_36dbfc4737a3e59b_seq1` | 0.77 | 0.24 | 953.8 | 0.5 | 0.24 | 0.9028 / 0.762 | 0.7323 | 0.857 | 0.5466 |
 | 4 | `l61_cd272a8fd929c7ee_seq0` | 0.84 | 0.18 | 723.5 | 0.25 | 0.47 | 0.8878 / 0.8044 | 0.7311 | 0.96 | 0.6557 |
-| 5 | `l58_fd5dae7987a2388d_seq1` | 0.82 | 0.19 | 916.6 | 0.5 | 0.39 | 0.8771 / 0.739 | 0.7168 | 0.938 | 0.6207 |
+| 5 | `l58_fd5dae7987a2388d_seq0` | 0.82 | 0.19 | 885.6 | 0.5 | 0.37 |  /  |  | 0.887 | 0.653 |
 | 6 | `l57_9526c9216eb7d6db_seq0` | 0.76 | 0.27 | 722.5 | 0.25 | 0.5 | 0.8391 / 0.704 | 0.6765 | 0.917 | 0.5811 |
 
 ### Developability and descriptive
@@ -49,7 +49,7 @@ Scales: `i_pTM`, `i_pAE`, ipSAE, contact recovery and epitope recovery are on [0
 | 2 | `l63_987fe804e455bc58_seq1` | -1.0 | 0.0 | 0 / 0 / 1 / 4 | 1 neg, 0 pos, 0 hydrophobic | 2 | -2.259 |
 | 3 | `l59_36dbfc4737a3e59b_seq1` | -3.0 | 0.0 | 0 / 0 / 0 / 1 | 0 neg, 2 pos, 0 hydrophobic | 0 | -2.0516 |
 | 4 | `l61_cd272a8fd929c7ee_seq0` | -5.0 | 0.0 | 1 / 0 / 0 / 1 | 0 neg, 2 pos, 1 hydrophobic | 0 | -2.0997 |
-| 5 | `l58_fd5dae7987a2388d_seq1` | -8.0 | 0.0 | 0 / 0 / 0 / 0 | 1 neg, 0 pos, 0 hydrophobic | 0 | -1.9588 |
+| 5 | `l58_fd5dae7987a2388d_seq0` | -11.0 | 0.0 | 0 / 0 / 1 / 0 | 0 neg, 0 pos, 1 hydrophobic | 0 | -2.2955 |
 | 6 | `l57_9526c9216eb7d6db_seq0` | -7.0 | 0.0 | 1 / 3 / 0 / 2 | 0 neg, 0 pos, 0 hydrophobic | 0 | -1.9272 |
 
 ### Note on rank 6
@@ -81,7 +81,7 @@ Scales: `i_pTM`, `i_pAE`, ipSAE, contact recovery and epitope recovery are on [0
 | `l59_36dbfc4737a3e59b_seq0` | `36dbfc4737` | neutral | -1.19 / -0.41 / -0.33 | 0.897 | 0.76 | a design on the same backbone ranked higher |
 | `l57_9526c9216eb7d6db_seq1` | `9526c9216e` | neutral | -0.23 / 0.45 / -2.48 | 0.478 | 0.71 | a design on the same backbone ranked higher |
 | `l61_cd272a8fd929c7ee_seq1` | `cd272a8fd9` | neutral | -0.4 / -0.36 / -0.37 | 0.9 | 0.81 | a design on the same backbone ranked higher |
-| `l58_fd5dae7987a2388d_seq0` | `fd5dae7987` | neutral | -0.01 / -0.11 / -2.65 | 0.806 | 0.82 | a design on the same backbone ranked higher |
+| `l58_fd5dae7987a2388d_seq1` | `fd5dae7987` | neutral | -0.07 / -0.12 / -0.13 | 0.812 | 0.82 | rejected by the platform novelty check, score 2/4 against a required 3/4. It ranked above the design that replaced it on the same backbone |
 | `l63_987fe804e455bc58_seq0` | `987fe804e4` | non-reproducible mechanism | -0.22 / 1.04 / -0.11 | 0.906 | 0.83 | a design on the same backbone ranked higher |
 
 ### Sequences of the candidates not submitted
@@ -91,7 +91,7 @@ Scales: `i_pTM`, `i_pAE`, ipSAE, contact recovery and epitope recovery are on [0
 | `l55_f6d5f550a210fd48_seq0` | `MIDVSKLSKEELWWLVIEIIAKYNDPEAQALFSNPETSKYSLEELQKEVEKILKK` |
 | `l64_1e7ab6d8f00c9958_seq0` | `MELSAEEMADRIIEVARTGDLEEAAEVSKLSWEEVMKIGEETGRVDEVLAAWLIVGSIVKRGKL` |
 | `l57_9526c9216eb7d6db_seq1` | `MEILEEEVNGIRVIVDDEGDGNISVYIFSERDIWSPVVPANGKSVKEILEEVKKKLE` |
-| `l58_fd5dae7987a2388d_seq0` | `IEVDPNLPVHEQVFLILEKGTKAEFEALRAGNEKEAEEISKEAVEKIEEAFEKEENPE` |
+| `l58_fd5dae7987a2388d_seq1` | `IEVDENLPAHEQVFKILEEGTRKEFEARRAGKEEEAERISEEAVKKIEEIFEKEKNPE` |
 | `l59_36dbfc4737a3e59b_seq0` | `SSAKEKEKKEEEEVLKLKADLSADVYYKRGWFKNEKEKEEFAEKLYKELKEEEEKKKKS` |
 | `l61_a6334a3a912c86f1_seq0` | `DEEMKEFAIEWVRMSIEWGKKTGEVERALRIARLSAEQFGERSGSEELLEELYEVIKELTE` |
 | `l61_a6334a3a912c86f1_seq1` | `DKEMEEFAEEWVRMSLEWGKKTGDVERAVRIARLSAEQFGERSGSKELLERLEKIIKELTE` |

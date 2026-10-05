@@ -249,7 +249,7 @@ See §12 for the metric dictionary. Scales: `i_pTM` and `i_pAE` on [0,1], areas 
 | 2 | `l63_987fe804e455bc58_seq1` | 63 | **non-reproducible mechanism** | -0.29 / 0.97 / -0.7 | 0.848 |
 | 3 | `l59_36dbfc4737a3e59b_seq1` | 59 | **non-reproducible mechanism** | 0.96 / -0.17 / -0.38 | 2.599 |
 | 4 | `l61_cd272a8fd929c7ee_seq0` | 61 | **neutral** | -0.4 / -0.39 / -0.5 | 0.808 |
-| 5 | `l58_fd5dae7987a2388d_seq1` | 58 | **neutral** | -0.07 / -0.12 / -0.13 | 0.956 |
+| 5 | `l58_fd5dae7987a2388d_seq0` | 58 | **neutral** | -0.01 / -0.11 / -2.65 | 0.993 |
 | 6 | `l57_9526c9216eb7d6db_seq0` | 57 | **neutral** | 0.03 / -0.41 / -2.62 | 1.022 |
 
 ### Interface quality and self-consistency
@@ -260,7 +260,7 @@ See §12 for the metric dictionary. Scales: `i_pTM` and `i_pAE` on [0,1], areas 
 | 2 | 0.83 | 0.19 | 1049.0 | 0.5 | 0.9193 / 0.8126 | 0.7454 | 0.935 | 0.6171 |
 | 3 | 0.77 | 0.24 | 953.8 | 0.5 | 0.9028 / 0.762 | 0.7323 | 0.857 | 0.5466 |
 | 4 | 0.84 | 0.18 | 723.5 | 0.25 | 0.8878 / 0.8044 | 0.7311 | 0.96 | 0.6557 |
-| 5 | 0.82 | 0.19 | 916.6 | 0.5 | 0.8771 / 0.739 | 0.7168 | 0.938 | 0.6207 |
+| 5 | 0.82 | 0.19 | 885.6 | 0.5 |  /  |  | 0.887 | 0.653 |
 | 6 | 0.76 | 0.27 | 722.5 | 0.25 | 0.8391 / 0.704 | 0.6765 | 0.917 | 0.5811 |
 
 ### Mouse cross-reactivity (objective 2), liabilities, descriptive
@@ -271,7 +271,7 @@ See §12 for the metric dictionary. Scales: `i_pTM` and `i_pAE` on [0,1], areas 
 | 2 | 0.94 | -0.006 | **0.935** | 0.87 | 5 degradation, 1 patches | -2.259 |
 | 3 | 0.928 | -0.01 | **0.839** | 0.81 | 1 degradation, 2 patches | -2.0516 |
 | 4 | 0.933 | -0.008 | **0.92** | 0.8 | 2 degradation, 3 patches | -2.0997 |
-| 5 | 0.938 | 0.002 | **0.812** | 0.778 | 0 degradation, 1 patches | -1.9588 |
+| 5 | 0.944 | 0.007 | **0.806** | 0.789 | 1 degradation, 1 patches | -2.2955 |
 | 6 | 0.851 | -0.069 | **0.479** | 0.778 | 6 degradation, 0 patches | -1.9272 |
 
 Free cysteines: **0** in every design. Hard liabilities: **0**. N-glycosylation sequons are counted in the metadata but not scored, because expression is cell-free.
