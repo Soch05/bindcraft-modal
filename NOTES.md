@@ -3633,3 +3633,22 @@ retenir est pire que de ne faire ni l'un ni l'autre.
 
 `METHODS.md` §12 et §1 corrigés en conséquence : l'entonnoir est auditable de bout en bout,
 métriques **et** séquences, pour les 23 candidats.
+
+### 6 octobre — `molecule_class` : le règlement condensé portait la mauvaise valeur
+
+Le widget d'upload de Proteinbase, relevé directement, liste `single_chain, nanobody, scfv,
+fab_kappa, fab_lambda`. **`protein` n'en fait pas partie** — or c'est la valeur que
+`challenge-01-egfr.md` §3 annonçait depuis le 1er octobre, et que le CSV portait sur ses
+6 lignes.
+
+C'est le formulaire qui parse le fichier, donc c'est lui qui tranche. `MOLECULE_CLASS` passe à
+**`single_chain`** dans `build_submission.py`, avec le motif inscrit à côté de la constante, et
+le tableau du règlement local est corrigé avec une note datée.
+
+Deux précisions du widget qui n'étaient pas dans le règlement condensé : le champ
+`molecule_class` est **optionnel** et réglable par design après l'upload, et le formulaire
+accepte **CSV ou FASTA** avec un modèle téléchargeable.
+
+C'est le troisième écart trouvé entre le règlement relevé le 1er octobre et la source vivante,
+après le 404 du domaine `design.adaptyvbio.com` et l'absence de seuil d'unicité. Le fichier
+condensé n'est pas fiable sur les détails de format.

@@ -51,7 +51,7 @@ murine, et aux deux pH pour l'humain.
 | Nombre de designs | 40 max en Track 1 ; **20 max en Tracks 2 et 3** |
 | Format | CSV **ordonné par classement**, meilleur design en première ligne |
 | Colonnes minimales | `name`, `sequence`, `molecule_class` |
-| `molecule_class` | `protein`, `nanobody`, `scfv`, `fab_kappa`, `fab_lambda` |
+| `molecule_class` | **`single_chain`**, `nanobody`, `scfv`, `fab_kappa`, `fab_lambda` — ⚠️ corrige le 6 octobre : ce tableau disait `protein`, valeur que le widget d'upload n'accepte pas. Champ par ailleurs **optionnel**, reglable par design apres l'upload. Le formulaire accepte CSV **ou FASTA**, et fournit un modele a telecharger. |
 | Fab | une seule séquence `VH:VL` ; le type de chaîne légère passe par `molecule_class` |
 
 Un nanobody ou un anticorps est reconnu comme tel s'il est annoté par un outil de

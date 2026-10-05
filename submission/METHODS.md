@@ -576,7 +576,7 @@ Stated so that a reader need not infer them.
 
 | path | content |
 |---|---|
-| `egfr_challenge1_submission.csv` | the submission: 6 rows, ranked, `name` / `sequence` / `molecule_class` |
+| `egfr_challenge1_submission.csv` | the submission: 6 rows, ranked, columns `name` / `sequence` / `molecule_class`, the last set to `single_chain` |
 | `METHODS.md` | this document |
 | `metadata/design_metrics.csv` | one row per candidate, English keys. Sequences printed only for submitted designs |
 | `metadata/design_metrics.json` | the same, nested |

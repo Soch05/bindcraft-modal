@@ -43,7 +43,17 @@ OUT_XLSX = Path("docs/egfr_analysis_working_copy.xlsx")
 # Règlement §3 : 20 max en Track 3, et le CSV est ordonné par classement.
 QUOTA = 20
 LENGTH_MIN, LENGTH_MAX = 10, 250
-MOLECULE_CLASS = "protein"
+# VALEUR PRISE SUR LE WIDGET D'UPLOAD, PAS SUR LE REGLEMENT CONDENSE.
+#
+# `challenge-01-egfr.md` §3, releve le 1er octobre, annonce l'enumeration
+# `protein, nanobody, scfv, fab_kappa, fab_lambda`. Le formulaire d'upload de Proteinbase
+# liste en realite `single_chain, nanobody, scfv, fab_kappa, fab_lambda` — `protein` n'y
+# figure pas. C'est le formulaire qui parse le fichier, donc c'est lui qui tranche.
+#
+# Le champ est par ailleurs OPTIONNEL et peut etre regle par design apres l'upload ; on le
+# fournit quand meme, pour que la modalite soit declaree dans le fichier plutot que saisie
+# a la main.
+MOLECULE_CLASS = "single_chain"
 STANDARD_AA = set("ACDEFGHIKLMNPQRSTVWY")
 
 # Un mutant n'est éligible que si le threading a CONCLU en sa faveur : mécanisme robuste et
