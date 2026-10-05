@@ -7,7 +7,7 @@ Single participant, self-funded. All compute on one rented L40S and one 2018 lap
 
 ## 1. Summary
 
-Six de novo miniproteins (57–94 aa) targeting a conserved patch of EGFR domain III, ranked by
+Five de novo miniproteins (57–94 aa) targeting a conserved patch of EGFR domain III, ranked by
 predicted pH selectivity first, mouse cross-reactivity second, affinity third.
 
 **The one result this submission rests on.** Design `egfr-dIII-prod01_denovo_l94_692deac2f1034bb6_seq0`
@@ -19,7 +19,7 @@ pKa model to two binder carboxylates and not to burial.
 
 **The honest caveat, stated once and not softened.** Of 23 candidates examined, **two** showed
 a positive pKa shift on their design model, and **one** survived verification on a second
-structure and a second species. Five of the six submitted designs carry **no reproducible pH
+structure and a second species. Four of the five submitted designs carry **no reproducible pH
 mechanism**; they are submitted as independent poses on a conserved, mouse-identical epitope.
 Seven further candidates were **not submitted** because they are predicted
 *counter*-selective, which would be the opposite of the stated objective; their sequences and
@@ -276,7 +276,7 @@ See §12 for the metric dictionary. Scales: `i_pTM` and `i_pAE` on [0,1], areas 
 
 Free cysteines: **0** in every design. Hard liabilities: **0**. N-glycosylation sequons are counted in the metadata but not scored, because expression is cell-free.
 
-`ipTM_af`, `pDockQ` and `pDockQ2` are computed by the ipSAE reference implementation but are **not reported**: on Boltz-2 input `ipTM_af` reads 0.000 because the tool expects an AlphaFold JSON, and the two pDockQ columns are constant across all six designs. The reason for each exclusion is recorded in `metadata/design_metrics.csv`.
+`ipTM_af`, `pDockQ` and `pDockQ2` are computed by the ipSAE reference implementation but are **not reported**: on Boltz-2 input `ipTM_af` reads 0.000 because the tool expects an AlphaFold JSON, and the two pDockQ columns are constant across all submitted designs. The reason for each exclusion is recorded in `metadata/design_metrics.csv`.
 
 ---
 
@@ -482,18 +482,27 @@ same design twice", with no identity threshold, and a point mutant at 98–99 % 
 parent is a rejection risk rather than a strategy. Maximum pairwise identity in the submitted
 set is **20.7 %**.
 
-**Why six and not thirteen.** One design per backbone yields 13. Seven of those are predicted
+**Why five and not thirteen.** One design per backbone yields 13. Seven of those are predicted
 **counter-selective** on the highest-ranked criterion — their binding would be disfavoured at
 pH 6.5. Submitting them would contradict the instruction to submit the designs expected to
 perform best, so they were not submitted, at the cost of seven independent backbones. Their
 sequences and metrics are published with the rest. The quota of
 20 is a ceiling and was never treated as a target.
 
+**And why five rather than six.** A sixth backbone, `fd5dae7987a2388d`, was removed by the
+platform novelty check, which requires a score of 3 out of 4. **Both** of its sequences scored
+2 out of 4, although they differ at 24 % of their positions and carry near-identical metrics.
+The score therefore tracks the backbone rather than the sequence, so substituting the sibling
+was not an option and the backbone is out entirely. No replacement was drawn from the
+remaining candidates: the neutral tier held only three backbones, and everything else is
+predicted counter-selective, which the rule above excludes. Taking one would have contradicted
+the stated criterion in order to reach a round number.
+
 **The scope of that cut.** It removes designs predicted **wrong** on objective 1, not designs
-predicted **weak** on objective 2. Rank 6 is neutral on the pH criterion rather than
+predicted **weak** on objective 2. Rank 5 is neutral on the pH criterion rather than
 counter-selective, so the rule does not reach it; it is retained for the reason given in §10.1.
 
-### 10.1 Rank 6 is a negative control, not a sixth candidate
+### 10.1 Rank 5 is a negative control, not a fifth candidate
 
 `egfr-dIII-prod02_denovo_l57_9526c9216eb7d6db_seq0` is **submitted as a negative control for
 the mouse cross-reactivity prediction: expected to bind human EGFR and not mouse.**
@@ -501,7 +510,7 @@ the mouse cross-reactivity prediction: expected to bind human EGFR and not mouse
 Three independent measurements converge on it as the weakest member of the submitted set, and
 all three point the same way:
 
-| measurement | value | rank within the submitted six |
+| measurement | value | rank within the submitted five |
 |---|---|---|
 | mouse epitope recovery | **0.479** | lowest |
 | ipSAE, target-to-binder direction | **0.704** | lowest |
@@ -529,7 +538,7 @@ rather than living only in this document.
 
 Stated so that a reader need not infer them.
 
-- **One design in twenty-three carries a verified pH mechanism.** Five of the six submitted
+- **One design in twenty-three carries a verified pH mechanism.** Four of the five submitted
   carry none. The set was generated without any pH objective, for the reason given in §1.
 - **The predicted factor is of order 5×**, while the challenge asks for no detectable binding at
   pH 7.4. That gap is not closed and nothing here claims to close it.
@@ -546,7 +555,7 @@ Stated so that a reader need not infer them.
   criterion of §5. They are reported, not removed.
 - **A constant was nearly shipped as a metric.** The ipSAE reference implementation also emits
   `pDockQ`, `pDockQ2` and `ipTM_af`. On Boltz-2 input `pDockQ` returned **0.0183** and
-  `pDockQ2` **0.0073** — identical to four decimals across all six designs — and `ipTM_af`
+  `pDockQ2` **0.0073** — identical to four decimals across every design measured — and `ipTM_af`
   returned **0.000**, because the tool reads interface pTM from an AlphaFold2 or AlphaFold3
   JSON that a Boltz-2 run does not produce. The Boltz branch simply does not populate what
   those scores need. The constancy was caught by reading the raw output table rather than
@@ -576,7 +585,7 @@ Stated so that a reader need not infer them.
 
 | path | content |
 |---|---|
-| `egfr_challenge1_submission.csv` | the submission: 6 rows, ranked, columns `name` / `sequence` / `molecule_class`, the last set to `single_chain` |
+| `egfr_challenge1_submission.csv` | the submission: 5 rows, ranked, columns `name` / `sequence` / `molecule_class`, the last set to `single_chain` |
 | `METHODS.md` | this document |
 | `metadata/design_metrics.csv` | one row per candidate, English keys. Sequences printed only for submitted designs |
 | `metadata/design_metrics.json` | the same, nested |

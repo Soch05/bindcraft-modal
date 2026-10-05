@@ -85,8 +85,16 @@ EXCLUDED_PH_TIERS = {"contre-selectif"}
 # squelette » reprenne naturellement le FRERE du refuse : meme squelette, sequence differente
 # a 24 %, metriques quasi identiques (dpKa -0,01 contre -0,07, epitope souris 0,806 contre
 # 0,812, meme i_pTM). Le squelette reste donc couvert.
+# ⚠️ LE SCORE SUIT LE SQUELETTE, PAS LA SEQUENCE. Les DEUX sequences du squelette
+# `fd5dae7987a2388d` sortent a 2/4, alors qu'elles different sur 24 % de leurs positions.
+# Substituer le frere ne sert donc a rien : c'est le squelette entier qui est ecarte, et le
+# lot tombe a 5 designs sur 5 squelettes.
+#
+# Aucun remplacant n'est possible sans contredire `EXCLUDED_PH_TIERS` : le palier neutre ne
+# comptait que trois squelettes, et tous les candidats restants sont contre-selectifs.
 NOVELTY_REJECTED = {
     "egfr-dIII-prod02_denovo_l58_fd5dae7987a2388d_seq1",
+    "egfr-dIII-prod02_denovo_l58_fd5dae7987a2388d_seq0",
 }
 
 

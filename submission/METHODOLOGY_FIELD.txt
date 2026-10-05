@@ -1,4 +1,4 @@
-Six de novo miniproteins (57-94 aa) against EGFR domain III, ranked by predicted pH
+Five de novo miniproteins (57-94 aa) against EGFR domain III, ranked by predicted pH
 selectivity first, mouse cross-reactivity second, interface quality third. Generated with
 BindCraft 2.0, then evaluated by three models that took no part in generating them.
 
@@ -12,8 +12,12 @@ artifact. It is the only design in the set positive on all three measurements.
 
 THE CAVEAT, NOT SOFTENED. Of 23 candidates examined, two showed a positive shift on their
 design model and one survived verification on a second structure and a second species. Ranks
-2 and 3 carry a mechanism that does not reproduce across predictors; ranks 4 to 6 carry none.
-Seven further candidates were predicted counter-selective and were not submitted. The reason
+2 and 3 carry a mechanism that does not reproduce across predictors; ranks 4 and 5 carry
+none.
+Seven further candidates were predicted counter-selective and were not submitted; one more
+backbone was removed by the platform novelty check, which scored both of its sequences below
+the required threshold despite 24 percent sequence divergence between them, indicating that
+the score tracks the backbone rather than the sequence. The reason
 for the low hit rate is structural rather than bad luck: no structure-based generator sees
 protonation states, so this set was generated against affinity and pH was quantified
 afterwards.
@@ -45,7 +49,7 @@ angstrom margin, and fails when geometry from one predictor is combined with pKa
 which bounds its use. It supports three positive cases against three negatives and is reported
 as suggestive rather than established. It enters no ranking criterion.
 
-RANK 6 IS A NEGATIVE CONTROL, not a sixth candidate. It is expected to bind human EGFR and not
+RANK 5 IS A NEGATIVE CONTROL, not a fifth candidate. It is expected to bind human EGFR and not
 mouse: it recovers only 0.479 of its human epitope against the mouse target, the lowest in the
 set, with the lowest ipSAE in the target-to-binder direction and a mouse pKa shift of -2.62. It
 is the only submitted design carrying a directional, falsifiable prediction. If it binds human
@@ -54,10 +58,10 @@ cross-reactivity measurement used here needs recalibration. Both outcomes are in
 
 ATTACHED. METHODS.md is the full methods paper, including the limitations and two mistakes
 made during the work. DESIGN_METRICS.md holds per-design metrics as readable tables, with the
-sequences and metrics of the 17 candidates that were considered and not submitted, so the
+sequences and metrics of the 18 candidates that were considered and not submitted, so the
 funnel can be checked. egfr_metadata.zip holds the machine-readable metrics with a dictionary
 giving the provenance and calibration status of every column, the full provenance of models
-and settings, and the predicted structures of the six submitted designs from the design model
+and settings, and the predicted structures of the five submitted designs from the design model
 and from the folding model against both the human and the mouse target.
 
 Metrics reported per design: ipTM and ipAE from the design model, ipSAE and LIS from the

@@ -3702,3 +3702,30 @@ divergents pour un même design.
 `DESIGN_METRICS.md` 9,7 Ko, `egfr_metadata.zip` 2,0 Mo. Le texte du champ méthodologie est
 dans `METHODOLOGY_FIELD.txt`, 820 mots. Le sélecteur lit ces pièces, pas le dépôt : le paquet
 est donc auto-suffisant.
+
+### 6 octobre — le score de nouveauté suit le SQUELETTE, pas la séquence
+
+`fd5dae7987a2388d_seq0`, le frère substitué, sort **lui aussi à 2/4**. Les deux séquences du
+squelette sont donc refusées alors qu'elles diffèrent sur **24 %** de leurs positions et que
+leurs métriques sont quasi identiques.
+
+**Conclusion : le score de nouveauté de Proteinbase est porté par le squelette, pas par la
+séquence.** Substituer un frère ne sert à rien — c'est le squelette entier qui tombe.
+
+⚠️ **Correction d'une affirmation que j'ai faite hier** : j'avais écrit que « le contrôle est
+par design et pas par lot, donc deux séquences du même squelette peuvent recevoir des scores
+différents ». **C'est faux**, et le cas inverse vient d'être observé. À retenir pour les
+challenges suivants : la diversité qui compte pour le filtre de nouveauté est celle des
+**squelettes**, pas celle des séquences — ce qui recoupe exactement l'argument qui faisait déjà
+ne soumettre qu'un design par squelette.
+
+**La soumission tombe à 5 designs sur 5 squelettes**, et aucun remplacement n'est pris : le
+palier neutre ne comptait que trois squelettes, et tous les candidats restants sont
+contre-sélectifs, donc écartés par `EXCLUDED_PH_TIERS`. En prendre un aurait contredit le
+critère annoncé pour atteindre un chiffre rond. Le contrôle négatif passe au **rang 5**.
+Identité maximale entre lignes : **20,3 %**. Les 9 contrôles passent.
+
+Toutes les pièces sont régénérées et recoupées : `METHODS.md` (« Five », « 5 rows », §10.1
+renommée « Rank 5 »), `DESIGN_METRICS.md` (18 candidats écartés, motif de refus porté par les
+deux séquences du squelette), `METHODOLOGY_FIELD.txt`, le paquet de métadonnées et l'archive.
+Vérification croisée : le CSV et le paquet listent exactement les mêmes 5 designs.
