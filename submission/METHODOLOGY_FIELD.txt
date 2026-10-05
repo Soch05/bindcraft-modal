@@ -1,0 +1,71 @@
+Six de novo miniproteins (57-94 aa) against EGFR domain III, ranked by predicted pH
+selectivity first, mouse cross-reactivity second, interface quality third. Generated with
+BindCraft 2.0, then evaluated by three models that took no part in generating them.
+
+THE RESULT THIS SUBMISSION RESTS ON. Rank 1 raises the pKa of target histidine H409 by +2.84
+units on its own AlphaFold2 design model, +2.27 on an independently predicted Boltz-2
+structure, and +2.41 on the complex with the mouse target. A positive shift means binding
+stabilises the protonated imidazole, so binding is thermodynamically favoured at pH 6.5 over
+pH 7.4. PROPKA attributes the shift to two binder carboxylates, ASP56 and GLU73, each engaging
+a different imidazole nitrogen; the desolvation term is negative, so this is not a burial
+artifact. It is the only design in the set positive on all three measurements.
+
+THE CAVEAT, NOT SOFTENED. Of 23 candidates examined, two showed a positive shift on their
+design model and one survived verification on a second structure and a second species. Ranks
+2 and 3 carry a mechanism that does not reproduce across predictors; ranks 4 to 6 carry none.
+Seven further candidates were predicted counter-selective and were not submitted. The reason
+for the low hit rate is structural rather than bad luck: no structure-based generator sees
+protonation states, so this set was generated against affinity and pH was quantified
+afterwards.
+
+METHOD. pH conditionality is scored as a proton-ligand linkage: PROPKA 3 on the complex, the
+target alone and the binder alone, all extracted from the same file, giving the pKa shift of
+H409 on binding and a predicted ratio of affinity between the two assay pH values. Residue
+numbering was verified on all 23 structures by recovering the full six-histidine fingerprint
+of the target. An unbiased variant of the score, taken over every ionisable group rather than
+H409 alone, agrees on the leading designs and never rescues a candidate.
+
+Poses were re-scored with Boltz-2, independent of AlphaFold2 in architecture and weights, with
+a precomputed deep MSA for the target and an empty MSA for the de novo binder. Agreement is
+measured as contact recovery rather than RMSD, because RMSD forgives a rotation that preserves
+the patch while losing every residue pairing. All 23 designs recover between 0.70 and 0.97.
+Both models were trained on the PDB, so their agreement excludes an artifact specific to one
+of them, not a bias shared by both.
+
+Mouse cross-reactivity was measured rather than approximated. The Q01279 domain III sequence
+was derived by two independent routes that agree, 87.4 percent identity with no indels and
+H409 conserved. Binding confidence barely changes between species, mean delta iptm -0.016, but
+three designs lose roughly half their epitope on the mouse target and a sequence-identity
+proxy does not separate them.
+
+A design rule was extracted and then tested against itself: a single salt bridge to H409, even
+with ideal geometry, does not shift the pKa, whereas two distinct carboxylates each reaching a
+different imidazole nitrogen do. The rule separates cleanly within one predictor, with a 2.20
+angstrom margin, and fails when geometry from one predictor is combined with pKa from another,
+which bounds its use. It supports three positive cases against three negatives and is reported
+as suggestive rather than established. It enters no ranking criterion.
+
+RANK 6 IS A NEGATIVE CONTROL, not a sixth candidate. It is expected to bind human EGFR and not
+mouse: it recovers only 0.479 of its human epitope against the mouse target, the lowest in the
+set, with the lowest ipSAE in the target-to-binder direction and a mouse pKa shift of -2.62. It
+is the only submitted design carrying a directional, falsifiable prediction. If it binds human
+and not mouse, the epitope analysis is validated; if it binds mouse anyway, the structural
+cross-reactivity measurement used here needs recalibration. Both outcomes are informative.
+
+ATTACHED. METHODS.md is the full methods paper, including the limitations and two mistakes
+made during the work. DESIGN_METRICS.md holds per-design metrics as readable tables, with the
+sequences and metrics of the 17 candidates that were considered and not submitted, so the
+funnel can be checked. egfr_metadata.zip holds the machine-readable metrics with a dictionary
+giving the provenance and calibration status of every column, the full provenance of models
+and settings, and the predicted structures of the six submitted designs from the design model
+and from the folding model against both the human and the mouse target.
+
+Metrics reported per design: ipTM and ipAE from the design model, ipSAE and LIS from the
+reference implementation, contact recovery against the independent folding model, ProteinMPNN
+sequence recovery, pKa shifts on three structures, mouse epitope recovery, buried area,
+hotspot and off-epitope contact fractions, solvent-exposure-weighted sequence liabilities, net
+charge, and ESM-2 pseudo log-likelihood. No design carries a free cysteine. ESM-2 is reported
+and excluded from every ordering, since it measures resemblance to natural proteins while the
+competition requires novelty.
+
+Code, dated working journal and per-run outputs: https://github.com/Soch05/bindcraft-modal
