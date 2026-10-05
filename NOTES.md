@@ -3391,3 +3391,59 @@ poste à plus forte valeur : Boltz-2 fonctionne, `H409` est `identical` chez la 
 prédire binder + domaine III murin donnerait une cross-réactivité **mesurée** et permettrait de
 rejouer PROPKA sur le complexe murin pour voir si le mécanisme pH survit au changement
 d'espèce. Coût estimé : une MSA (~1 min) et 23 complexes (~$0,85).
+
+### 5 octobre, suite — cross-réactivité souris mesurée, et le classement en est changé
+
+**Cible murine établie, deux fois.** [mouse_target.py](mouse_target.py) dérive le domaine III
+de Q01279 par deux chemins sans étape commune — alignement de la séquence complète (1210 aa)
+sur le PDB humain, et colonne `aa_mouse` de `data/egfr_residues.csv` — et refuse d'écrire le
+fasta s'ils divergent. Ils concordent. **UniProt 333–530, 198 résidus, 87,4 % d'identité,
+aucun indel**, donc la numérotation PDB 309–506 vaut pour les deux espèces et le mapping de
+contacts est l'identité. **H409 conservée.** `H359R` confirme après coup le coldspot `A359`.
+MSA murine propre : 3502 séquences.
+
+**23 complexes murins, ~$0,85.** Δ iptm souris − humain : **−0,098 à +0,007**, moyenne
+**−0,016**. Épitope humain retrouvé chez la souris : **0,478 à 0,935**. Le passage à la souris
+ne coûte presque rien en confiance. Mais trois designs changent de mode de liaison —
+`9526c9216eb7d6db` seq0/seq1 à 0,479/0,478 et `f6d5f550a210fd48_seq0` à 0,604 — et **le proxy
+de séquence ne les distinguait pas** (conservation 0,778–0,800, dans la moyenne). L'objectif
+n°2 est donc classé sur la mesure, le proxy en départage.
+
+**L'effet de bord est plus important que la mesure elle-même.** Pour comparer les espèces à
+prédicteur constant, PROPKA a été relancé sur les structures **Boltz humaines**. Résultat :
+
+| design | ΔpKa AF2-H | ΔpKa Boltz-H | ΔpKa Boltz-M |
+|---|---|---|---|
+| `692deac2f1034bb6_seq0` | **+2,84** | **+2,27** | **+2,41** |
+| `36dbfc4737a3e59b_seq1` | **+0,96** | −0,17 | −0,38 |
+| `987fe804e455bc58_seq0` | −0,22 | **+1,04** | −0,11 |
+| `987fe804e455bc58_seq1` | −0,29 | **+0,97** | −0,70 |
+
+Écart Boltz − AF2 sur les 23 : **−1,13 à +1,26**, médiane −0,10, **même verdict de mécanisme
+sur 20/23**. Les 3 désaccords tombent **exactement sur les cas limites**, ceux entre −0,3 et
++1,1 — c'est-à-dire ceux qu'on serait tenté de promouvoir.
+
+**Conséquence : `36dbfc4737a3e59b_seq1` est déclassé.** Son mécanisme était une propriété de la
+structure AF2, pas de la séquence. Le critère est durci : un mécanisme n'est **robuste** que
+s'il est positif sur les **trois** mesures. Un palier **« mécanisme non reproductible »** est
+ajouté, au-dessus du neutre. **Un seul design du lot est robuste.**
+
+**La règle bidentée, testée trois fois.** C'est le résultat de méthode du dossier.
+
+| test | géométrie | ΔpKa | goulots positifs | goulots négatifs | séparation |
+|---|---|---|---|---|---|
+| 1 | AF2 | AF2 | 3,34 ; 3,35 | 4,54 ; 4,55 ; 6,40 | nette, 1,19 Å |
+| 2 | AF2 | Boltz | 3,35 ; 4,54 ; 4,55 | **3,34** ; 6,40 | **recouvrement 1,21 Å** |
+| 3 | Boltz | Boltz | 3,19 ; 3,88 ; 4,03 | 6,23 ; 6,74 ; 7,97 | nette, **2,20 Å** |
+
+Le test 1 était auto-référentiel (même structure des deux côtés). Le test 2 met la règle en
+échec. Le test 3, le seul correct, la passe avec **presque le double de marge**. Donc : **la
+règle tient, mais elle est locale à la structure** — le goulot doit être mesuré sur la
+structure dont on évalue le pKa, jamais transféré d'un prédicteur à l'autre. Cohérent avec
+`36dbfc4737a3e59b_seq1`, dont le goulot passe de 3,34 Å (AF2) au groupe 6,2–8,0 Å (Boltz) :
+Boltz place ses carboxylates ailleurs et le mécanisme disparaît avec eux. p ≈ 5 % sous
+l'hypothèse nulle (3 contre 3 sur 6 designs à paire possible). **Soutenue, non établie.**
+
+**Soumission remise à jour** : toujours 13 designs sur 13 squelettes, mais **l'ordre a changé**
+et l'identité maximale descend à **23,4 %**. Les 8 contrôles passent. Coût GPU cumulé des deux
+jours : **~$2,64**.

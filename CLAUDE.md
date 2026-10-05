@@ -586,8 +586,31 @@ avancer.
        moins de ~10 Å d'un séquon, **jamais mesurés depuis les hotspots retenus** : c'est une
        mesure locale à écrire, pas une liste à deviner. Vérifier dans le log du run la ligne
        `target=… coldspots=… residues=N` qui dit combien ont été résolus.
-5. [ ] **Multicible** : trouver ou modéliser le domaine III de Q01279. Sans ça, pas de
-       multicible, et l'objectif n°2 reste un filtre a posteriori.
+5. [~] **Domaine III de Q01279 : ÉTABLI, et la cross-réactivité est MESURÉE.** FAIT le
+       5 octobre, [mouse_target.py](mouse_target.py) et [cross_species.py](cross_species.py).
+
+       Séquence du domaine III murin : **UniProt 333–530**, 198 résidus, dérivée **deux fois
+       de manière indépendante** (alignement de Q01279 complet sur le PDB humain, et colonne
+       `aa_mouse` de `data/egfr_residues.csv`) — le script refuse d'écrire le fasta si les
+       deux divergent. **87,4 % d'identité**, **aucun indel** dans la fenêtre (donc la
+       numérotation PDB 309–506 vaut pour les deux espèces), **H409 conservée**, et `H359R` —
+       ce qui confirme après coup le coldspot `A359`.
+
+       Cross-réactivité mesurée par Boltz-2 sur les 23 designs : **Δ iptm souris − humain de
+       −0,098 à +0,007** (moyenne −0,016) et **épitope humain retrouvé chez la souris de
+       0,478 à 0,935**. Mais **trois designs changent de mode de liaison**
+       (`9526c9216eb7d6db` ×2 à 0,478 et `f6d5f550a210fd48_seq0` à 0,604), et **le proxy de
+       séquence ne les distinguait pas**. L'objectif n°2 est donc classé sur la mesure.
+
+       **⚠️ Ce qui reste non fait** : aucune campagne BindCraft **multicible**. La
+       cross-réactivité est **évaluée**, jamais **optimisée**. Et la structure murine est
+       elle-même prédite, faute de structure expérimentale de Q01279.
+
+       **Effet de bord majeur** : relancer PROPKA sur les structures **Boltz** a révélé que le
+       ΔpKa dépend du prédicteur. `36dbfc4737a3e59b_seq1`, second porteur de mécanisme sur
+       AF2 (**+0,96**), tombe à **−0,17** sur Boltz et **−0,38** chez la souris. **Déclassé.**
+       Un mécanisme n'est « robuste » que s'il est positif sur les **trois** mesures, et **un
+       seul design du lot** l'est : `692deac2f1034bb6_seq0` (+2,84 / +2,27 / +2,41).
 6. [x] **Mesurer l'appariement His–acide.** FAIT le 4 octobre,
        [his_acid_pairing.py](his_acid_pairing.py) sur les 3 designs de `prod01`.
        **1 design sur 3 porte un mécanisme pH mesuré**, et c'est un double pont salin :
@@ -595,10 +618,69 @@ avancer.
        deux azotes de l'imidazole engagés. Critère : 4,0 Å entre atomes chargés
        (Barlow & Thornton). La **route 1 est morte partout** : 2 designs sur 3 n'ont aucune
        His, et la seule His d'interface est à 28,4 Å de D323. Détail dans NOTES.md.
-7. [ ] Câbler le prédicteur orthogonal. Jamais fait.
-8. [ ] Rédiger le dossier de méthodes **en parallèle des runs**, pas à la fin. NOTES.md en est
-       la matière première ; `docs/ARCHITECTURE.md` §4 contient déjà l'inventaire des
-       constantes avec leur statut de calibration, qui est la partie la plus défendable.
+7. [x] **Câbler le prédicteur orthogonal.** FAIT le 5 octobre, [modal_boltz2.py](modal_boltz2.py).
+       Boltz-2 2.2.0 sur L40S, MSA de cible précalculée et embarquée dans l'image, MSA vide
+       pour le binder, 3 échantillons de diffusion. **23/23 designs natifs et 12/12 mutants**
+       prédits. Récupération de contacts (et non RMSD) par [contact_recovery.py](contact_recovery.py) :
+       **0,70 à 0,97** sur les natifs — les poses d'AF2 ne sont pas des artefacts d'AF2.
+
+       ⚠️ **Piège qui coûte un run** : boltz 2.2.0 appelle inconditionnellement un noyau
+       `cuequivariance_torch` que `pip install boltz` ne tire pas. Sans `--no_kernels`, il
+       sort en **code retour 0** sans produire aucune prédiction, 6 s par complexe. D'où
+       l'entrypoint `diagnose` (un seul complexe, sortie affichée) à lancer avant toute série,
+       et le fait que `predict` imprime la sortie de boltz dès qu'une prédiction manque.
+
+       ⚠️ **Le seuil de « pose confirmée » posé (récupération ≥ 0,50, iptm ≥ 0,60) ne
+       discrimine rien** : les 23 designs le passent largement. Il n'apporte aucune
+       information de classement.
+
+       **Orthogonalité à ne pas surestimer** : Boltz-2 et AF2 sont indépendants par
+       l'architecture et les poids, mais tous deux entraînés sur la PDB.
+8. [x] **Rédiger le dossier de méthodes.** FAIT, [docs/SUBMISSION_REPORT.md](docs/SUBMISSION_REPORT.md),
+       écrit au fur et à mesure pendant la nuit du 4 au 5 octobre. Contient les 8 phases, les
+       seuils avec leur statut de calibration, les décisions prises en autonomie, et les
+       erreurs commises avec leur correction.
+
+       Soumission : `submission/egfr_challenge1_submission.csv`, **13 designs**, un par
+       squelette, ordonnés, quota de 20 non atteint et non complété. Identité maximale entre
+       deux lignes **25,4 %**. 8 contrôles passés.
+
+       **⚠️ Un seul design porte un mécanisme pH robuste** : `692deac2f1034bb6_seq0`, ΔpKa
+       H409 **+2,84** (AF2 humain), **+2,27** (Boltz humain), **+2,41** (Boltz souris),
+       facteur 5,28. Les rangs 2 et 3 portent un mécanisme **non reproductible**, les rangs 4
+       à 6 sont neutres, les rangs 7 à 13 **contre-sélectifs**. Identité maximale entre deux
+       lignes soumises : **23,4 %**.
+
+9. [x] **Mesurer le pH par PROPKA**, ce qui n'était pas au plan et qui est devenu le cœur du
+       dossier. [propka_scan.py](propka_scan.py), 141 runs, complexe / cible seule / binder
+       seul. Numérotation vérifiée sur les **23** structures (A409=HIS et empreinte des 6 His
+       conforme partout) par [prepare_structures.py](prepare_structures.py).
+
+       **Fait mécanistique central** : pour `692deac2f1034bb6_seq0`, PROPKA attribue la hausse
+       du pKa de H409 (6,50 → 9,11) aux **deux carboxylates du binder** `ASP56` et `GLU73`
+       (+1,60 chacun en liaison H, +1,39 et +0,54 en coulombien), la désolvatation
+       contribuant **négativement** (−2,50). Ce n'est pas un artefact d'enfouissement.
+
+       **Règle de conception qui en découle**, [bidentate_rule.py](bidentate_rule.py) : un
+       pont salin **unique**, même de géométrie idéale, ne décale pas le pKa. Il faut **deux
+       carboxylates distincts**, un par azote de l'imidazole. Testée trois fois : géométrie
+       AF2 contre ΔpKa AF2 → nette à 1,19 Å mais **auto-référentielle** ; géométrie AF2 contre
+       ΔpKa Boltz → **recouvrement 1,21 Å, échec** ; géométrie Boltz contre ΔpKa Boltz, le
+       seul test correct → nette à **2,20 Å**.
+
+       **La règle est locale à la structure** : le goulot doit être mesuré sur la structure
+       dont on évalue le pKa, jamais transféré d'un prédicteur à l'autre. p ≈ 5 % sous
+       l'hypothèse nulle (3 contre 3 sur 6 designs à paire possible). **Soutenue, non
+       établie**, et hors de tout critère de classement.
+
+10. [x] **La campagne de mutants acides a échoué, et on sait pourquoi.** Sur 12 mutants,
+       3 seulement ont un rotamère à portée de H409 et sans clash ; `S28D` est
+       structurellement impossible. Analyse appariée : **1 améliore, 4 neutres, 7 dégradent**.
+       Le coût structural mesuré par Boltz-2 est **négligeable** (≤ 0,079 de récupération) —
+       donc **l'échec est chimique, pas structural**. Deux causes : le proxy de sélection était
+       la distance **CB**→H409, qui ne prédit pas où arrive le carboxylate (seuil réel ~4,3 Å,
+       jamais posé) ; et 5 mutants ont un carboxylate dont le pKa propre dépasse 5,0, donc
+       neutre dès pH 6,5 — `S15D` sort à **8,67–8,77**. Aucun mutant n'entre dans la soumission.
 
 **Marge** : la clôture est dimanche 5 à 13h59 Paris. Viser samedi matin laisse ~24 h ; samedi
 soir n'en laisse que ~15. La marge se compte contre dimanche 13h59, pas contre minuit.

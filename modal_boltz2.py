@@ -85,6 +85,8 @@ image = (
     # La MSA précalculée de la cible, embarquée : aucun appel à un serveur MSA distant
     # depuis le conteneur GPU, qui est la cause de blocage n°1 de cette étape.
     .add_local_file("inputs/egfr_dIII.a3m", remote_path="/root/inputs/egfr_dIII.a3m")
+    # La MSA de la cible MURINE, pour la mesure de cross-reactivite (objectif n°2).
+    .add_local_file("inputs/mEGFR_dIII.a3m", remote_path="/root/inputs/mEGFR_dIII.a3m")
 )
 
 app = App("boltz2-egfr")
@@ -140,8 +142,17 @@ def selfcheck() -> None:
 # ----------------------------------------------------------------------------------------
 
 
-def write_yaml(directory: Path, name: str, target: str, binder: str) -> Path:
-    """Une entrée Boltz par complexe. `msa: empty` = mode séquence seule pour le binder."""
+HUMAN_MSA = "/root/inputs/egfr_dIII.a3m"
+MOUSE_MSA = "/root/inputs/mEGFR_dIII.a3m"
+
+
+def write_yaml(directory: Path, name: str, target: str, binder: str,
+               target_msa: str = HUMAN_MSA) -> Path:
+    """Une entrée Boltz par complexe. `msa: empty` = mode séquence seule pour le binder.
+
+    `target_msa` change avec l'espèce : la cible murine a sa propre MSA, et réutiliser celle
+    de l'humain injecterait l'alignement de la mauvaise protéine dans la prédiction.
+    """
     path = directory / f"{name}.yaml"
     path.write_text(
         "version: 1\n"
@@ -149,7 +160,7 @@ def write_yaml(directory: Path, name: str, target: str, binder: str) -> Path:
         "  - protein:\n"
         "      id: A\n"
         f"      sequence: {target}\n"
-        "      msa: /root/inputs/egfr_dIII.a3m\n"
+        f"      msa: {target_msa}\n"
         "  - protein:\n"
         "      id: B\n"
         f"      sequence: {binder}\n"
@@ -194,7 +205,10 @@ def predict(jobs: list[dict], run_name: str) -> str:
         for leftover in work.glob("*"):
             shutil.rmtree(leftover, ignore_errors=True) if leftover.is_dir() \
                 else leftover.unlink()
-        yaml_path = write_yaml(work, name, task["target"], task["binder"])
+        yaml_path = write_yaml(
+            work, name, task["target"], task["binder"],
+            task.get("target_msa", HUMAN_MSA),
+        )
         out_dir = Path("/tmp/boltz_out") / name
         out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -389,4 +403,48 @@ def rescore_mutants(run_name: str = "rescore_mut01") -> None:
     ok = [r for r in results if r.get("ok")]
     print()
     print(f"-> {len(ok)}/{len(results)} mutants predits")
+    Path(f"out/boltz_{run_name}.json").write_text(json.dumps(results, indent=2))
+
+
+def mouse_sequence() -> str:
+    lines = [
+        line.strip()
+        for line in Path("inputs/mEGFR_dIII.fasta").read_text().splitlines()
+        if line.strip()
+    ]
+    return "".join(line for line in lines if not line.startswith(">")).upper()
+
+
+@app.local_entrypoint()
+def rescore_mouse(designs: str | None = None, run_name: str = "mouse01") -> None:
+    """Objectif n°2 MESURE : les binders reconnaissent-ils l'EGFR murin ?
+
+    Jusqu'ici la cross-reactivite n'etait qu'un proxy de sequence — la fraction des residus
+    de cible contactes identiques chez la souris. Un proxy de sequence ne dit rien de la
+    conformation locale murine. Ici on predit directement chaque binder contre le domaine III
+    de Q01279, avec SA propre MSA, et on compare pose et confiance a celles obtenues sur
+    l'humain.
+
+    Le domaine III murin vient de mouse_target.py, qui le derive DEUX fois de maniere
+    independante et refuse d'ecrire le fasta si les deux divergent. Il n'y a aucun indel
+    entre humain et souris dans cette fenetre, donc la numerotation PDB 309-506 s'applique
+    telle quelle aux deux especes et le mapping de contacts est l'identite.
+    """
+    human_jobs = load_jobs(designs)
+    if not human_jobs:
+        raise SystemExit("aucun design a traiter")
+    target = mouse_sequence()
+    jobs = [
+        {"name": job["name"], "target": target, "binder": job["binder"],
+         "target_msa": MOUSE_MSA}
+        for job in human_jobs
+    ]
+    print(f"{len(jobs)} complexes contre le domaine III MURIN, "
+          f"{DIFFUSION_SAMPLES} echantillons chacun")
+    print(f"cible murine : {len(target)} residus (Q01279, UniProt 333-530)")
+    print(f"GPU {GPU} | budget ${BUDGET_USD:.2f} -> timeout {TIMEOUT}s")
+    results = json.loads(predict.remote(jobs, run_name))
+    ok = [r for r in results if r.get("ok")]
+    print()
+    print(f"-> {len(ok)}/{len(results)} complexes murins predits")
     Path(f"out/boltz_{run_name}.json").write_text(json.dumps(results, indent=2))

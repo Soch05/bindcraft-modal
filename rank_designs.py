@@ -39,6 +39,7 @@ BOLTZ_CONTACTS = Path("out/boltz_contacts.csv")
 BIDENTATE = Path("out/bidentate.csv")
 BOLTZ_MUTANTS = Path("out/boltz_contacts_mutants.csv")
 ESM2 = Path("out/esm2_pll.csv")
+CROSS = Path("out/cross_species.csv")
 
 OUT_RANK = Path("out/master_rank.csv")
 OUT_PAIRS = Path("out/paires_wt_mutant.csv")
@@ -208,6 +209,7 @@ def build() -> tuple[list[dict], list[dict]]:
     # Les mutants sont indexés `<parent>__<mutation>`, comme les dossiers Boltz.
     orthogonal_mutants = {r["design"]: r for r in rows(BOLTZ_MUTANTS)}
     esm2 = {r["design_id"]: r for r in rows(ESM2)}
+    cross = {r["design"]: r for r in rows(CROSS)}
     mutant_rows = {r["design"]: r for r in rows(MUTANTS)}
 
     entries: list[dict] = []
@@ -412,14 +414,74 @@ def build() -> tuple[list[dict], list[dict]]:
             entry["confiance_modele_orthogonal"] = "NON MESUREE"
             entry["orthogonal_detail"] = ""
             entry["pose"] = "non mesuree"
+        # --- cross-especes et robustesse au predicteur ---
+        # Un mutant n'a pas ete predit contre la souris : il herite des valeurs de son
+        # parent pour la PARTIE CIBLE (meme epitope, meme H409), et ses propres colonnes
+        # restent vides pour tout ce qui depend de sa sequence.
+        reference = entry["parent"] if entry["type"] == "mutant" else entry["design_id"]
+        species = cross.get(reference, {})
+        inherited = entry["type"] == "mutant"
+        entry["dpKa_humain_Boltz"] = (
+            "" if inherited else species.get("dpKa_humain_Boltz", "")
+        )
+        entry["dpKa_souris_Boltz"] = (
+            "" if inherited else species.get("dpKa_souris_Boltz", "")
+        )
+        entry["iptm_souris"] = "" if inherited else species.get("iptm_souris", "")
+        entry["delta_iptm_souris"] = "" if inherited else species.get("delta_iptm", "")
+        entry["epitope_souris_retrouve"] = (
+            "" if inherited else species.get("recuperation_epitope_souris", "")
+        )
+        entry["mecanisme_conserve_souris"] = (
+            "non mesure (mutant)" if inherited
+            else species.get("mecanisme_conserve", "non mesure")
+        )
+
         # ESM-2 : DESCRIPTIF. N'entre dans aucun tri — voir le docstring du module.
         key = (f"{entry['design_id']}__{entry['mutations']}"
                if entry["type"] == "mutant" else entry["design_id"])
         entry["ESM2_PLL"] = esm2.get(key, {}).get("ESM2_PLL_par_residu", "non mesure")
 
+    def mechanism_robustness(entry: dict) -> tuple[str, int, int]:
+        """Le mécanisme pH tient-il sur PLUSIEURS structures et sur LES DEUX espèces ?
+
+        POURQUOI CE DURCISSEMENT. Le ΔpKa publié jusqu'ici venait d'une seule structure AF2.
+        Trois mesures indépendantes existent maintenant : AF2 humain, Boltz humain, Boltz
+        souris. Elles ne concordent pas toujours, et les désaccords tombent EXACTEMENT sur
+        les cas limites — `36dbfc4737a3e59b_seq1` passe de +0,96 sur AF2 à −0,17 sur Boltz.
+        Un mécanisme qui ne survit pas au changement de structure n'est pas un mécanisme,
+        c'est une propriété de la structure.
+
+        Et comme l'objectif n°2 exige la même séquence sur P00533 ET Q01279, un mécanisme pH
+        perdu chez la souris ne sert pas le challenge.
+        """
+        values = [
+            entry.get(key) for key in
+            ("dpKa_H409", "dpKa_humain_Boltz", "dpKa_souris_Boltz")
+        ]
+        numbers = [number(v) for v in values]
+        numbers = [v for v in numbers if v == v]
+        if not numbers:
+            return ("non mesure", 0, 0)
+        positive = sum(1 for v in numbers if v > PKA_NOISE)
+        negative = sum(1 for v in numbers if v < -PKA_NOISE)
+        if positive == len(numbers) and len(numbers) >= 3:
+            return ("robuste", positive, len(numbers))
+        if positive:
+            return ("non reproductible", positive, len(numbers))
+        if negative == len(numbers):
+            return ("contre-selectif", positive, len(numbers))
+        return ("neutre", positive, len(numbers))
+
+    # --- robustesse du mécanisme pH, calculée AVANT les groupes qui en dépendent ------
+    for entry in entries:
+        verdict, positive, total = mechanism_robustness(entry)
+        entry["mecanisme_robustesse"] = verdict
+        entry["mesures_pH_positives"] = f"{positive}/{total}" if total else ""
+
     # --- groupes et tri ----------------------------------------------------------------
     for entry in entries:
-        robust = entry["mecanisme_pH"] == "robuste"
+        robust = entry["mecanisme_robustesse"] == "robuste"
         confirmed = entry["pose"] == "confirmee"
         if robust and confirmed:
             group = 1
@@ -448,29 +510,37 @@ def build() -> tuple[list[dict], list[dict]]:
         présent, neutre, ou contre-sélectif. L'ordre FIN à l'intérieur d'un palier passe au
         critère de rang suivant, c'est-à-dire la cross-réactivité souris.
         """
-        shift = entry["dpKa_H409"]
-        if not isinstance(shift, float) or shift != shift:
-            return 1
-        if shift > PKA_NOISE:
+        verdict = entry["mecanisme_robustesse"]
+        if verdict == "robuste":
             return 0
-        if shift >= -PKA_NOISE:
+        if verdict == "non reproductible":
             return 1
-        return 2
+        if verdict in {"neutre", "non mesure"}:
+            return 2
+        return 3
 
     def sort_key(entry: dict) -> tuple:
         factor = entry["facteur_pH_predit"]
         factor = factor if isinstance(factor, float) and factor == factor else 0.0
-        conservation = entry["epitope_conservation_frac"]
-        conservation = conservation if conservation == conservation else 0.0
         tier = ph_tier(entry)
-        # Le facteur ne départage QUE dans le palier à mécanisme, où les écarts (5,28 vs
-        # 2,60) dépassent largement l'erreur de PROPKA.
+        # Le facteur ne départage QUE dans le palier à mécanisme robuste, où les écarts
+        # dépassent largement l'erreur de PROPKA.
         inside = -factor if tier == 0 else 0.0
+
+        # OBJECTIF N°2 : on classe sur la MESURE et non sur le proxy. L'épitope retrouvé
+        # chez la souris par un modèle indépendant est une évidence strictement plus forte
+        # que la fraction de résidus identiques dans l'alignement. Le proxy reste en
+        # départage pour les mutants, qui n'ont pas été prédits contre la souris.
+        measured = number(entry.get("epitope_souris_retrouve"))
+        proxy = entry["epitope_conservation_frac"]
+        proxy = proxy if proxy == proxy else 0.0
+        mouse = -measured if measured == measured else 0.0
         return (
             entry["groupe"],
             tier,
             inside,
-            -conservation,
+            mouse,
+            -proxy,
             entry["i_pAE_AF2"],
             -entry["i_pTM_AF2"],
         )
@@ -478,7 +548,10 @@ def build() -> tuple[list[dict], list[dict]]:
     entries.sort(key=sort_key)
     for rank, entry in enumerate(entries, start=1):
         entry["rang_global"] = rank
-        entry["palier_pH"] = ("mecanisme", "neutre", "contre-selectif")[ph_tier(entry)]
+        entry["palier_pH"] = (
+            "mecanisme robuste", "mecanisme non reproductible",
+            "neutre", "contre-selectif",
+        )[ph_tier(entry)]
 
     # --- phase 5 : analyse appariée ----------------------------------------------------
     by_id = {e["design_id"]: e for e in entries if e["type"] != "mutant"}
@@ -550,7 +623,10 @@ def main() -> None:
     columns = [
         "rang_global", "groupe", "design_id", "squelette", "run", "type", "parent",
         "mutations", "sequence", "longueur", "charge_nette", "cysteines",
-        "mecanisme_pH", "palier_pH", "route_pH", "facteur_pH_predit", "dpKa_H409",
+        "mecanisme_pH", "mecanisme_robustesse", "mesures_pH_positives", "palier_pH",
+        "route_pH", "facteur_pH_predit", "dpKa_H409", "dpKa_humain_Boltz",
+        "dpKa_souris_Boltz", "mecanisme_conserve_souris", "iptm_souris",
+        "delta_iptm_souris", "epitope_souris_retrouve",
         "dpKa_etendue_rotameres", "facteur_min_rotamere", "facteur_max_rotamere",
         "pKa_H409_lie", "pKa_H409_libre",
         "pont_salin_WT_verifie", "pont_residu", "pont_distance_A", "pont_angle_deg",

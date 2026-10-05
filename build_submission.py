@@ -48,7 +48,7 @@ STANDARD_AA = set("ACDEFGHIKLMNPQRSTVWY")
 # carboxylate sain. Un mutant à mécanisme absent ou indéterminé n'apporte rien sur
 # l'objectif n°1 et perd au passage le filtrage BindCraft et la validation orthogonale que
 # son parent possède. Règle posée ici, appliquée dans `select`.
-MUTANT_REQUIRES = {"mecanisme_pH": "robuste", "verdict_carboxylate": "VERT"}
+MUTANT_REQUIRES = {"mecanisme_robustesse": "robuste", "verdict_carboxylate": "VERT"}
 
 
 def rows(path: Path) -> list[dict]:
@@ -293,7 +293,10 @@ def workbook(chosen: list[dict], candidates: list[dict], control_rows: list[dict
     # 1. Soumission
     submission_columns = [
         "rang_global", "design_id", "squelette", "type", "longueur", "charge_nette",
-        "palier_pH", "mecanisme_pH", "facteur_pH_predit", "dpKa_H409",
+        "palier_pH", "mecanisme_robustesse", "mesures_pH_positives",
+        "facteur_pH_predit", "dpKa_H409", "dpKa_humain_Boltz", "dpKa_souris_Boltz",
+        "mecanisme_conserve_souris", "iptm_souris", "delta_iptm_souris",
+        "epitope_souris_retrouve",
         "pont_residu", "pont_distance_A", "pont_angle_deg",
         "epitope_conservation_frac", "i_pTM_AF2", "i_pAE_AF2",
         "Interface_BuriedArea", "Hotspot_Contact_Fraction", "Off_Epitope",

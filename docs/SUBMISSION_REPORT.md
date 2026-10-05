@@ -311,7 +311,9 @@ PDB.
 Chaque complexe a été calculé, puis **la cible seule extraite du même fichier**, pour que la
 différence ne porte que sur la présence du binder.
 
-**Sur 23 designs, 2 font monter le pKa de H409.**
+**Sur 23 designs, 2 font monter le pKa de H409** — sur les structures AF2. Un seul des deux
+survivra à la vérification sur une seconde structure et chez la souris ; voir la section
+cross-réactivité.
 
 | design | pKa H409 lié | pKa H409 libre | ΔpKa | facteur pH prédit |
 |---|---|---|---|---|
@@ -595,18 +597,20 @@ porte « non mesuré », jamais une estimation.
 
 ---
 
-## Une règle de conception tirée des 23 cas
+## Une règle de conception, posée puis testée trois fois
 
-C'est le contenu le plus transférable de la nuit, et il contredit le critère qui avait servi à
-sélectionner l'épitope.
+C'est le contenu le plus transférable du dossier. Il a été **dérivé, puis mis en échec, puis
+retesté correctement**, et les trois étapes sont rapportées parce que la deuxième est ce qui
+rend la troisième crédible.
 
 ### Le constat de départ
 
 Le critère utilisé jusqu'ici était « un carboxylate du binder à moins de 4 Å d'un azote de
 l'imidazole de H409 ». **Onze designs le remplissent. Deux seulement font monter le pKa de
-H409.** Le critère ne prédit donc pas le mécanisme. Pire, trois designs à géométrie de pont
-salin quasi idéale (`987fe804e455bc58` à 3,21 Å et 119,5° ; `5c3ec1903e03c261` à 3,17 Å et
-120,7° ; `fd5dae7987a2388d` à 3,36 Å) ont un ΔpKa **nul ou négatif**.
+H409** (sur structures AF2). Le critère ne prédit donc pas le mécanisme : trois designs à
+géométrie de pont salin quasi idéale (`987fe804e455bc58` à 3,21 Å et 119,5° ;
+`5c3ec1903e03c261` à 3,17 Å et 120,7° ; `fd5dae7987a2388d` à 3,36 Å) ont un ΔpKa nul ou
+négatif.
 
 ### Première hypothèse, réfutée par la mesure
 
@@ -615,7 +619,7 @@ deux azotes à moins de 5,0 Å, et leur ΔpKa va de **+2,84 à −1,19**. En rev
 designs à zéro azote engagé n'a de ΔpKa positif. L'engagement des deux azotes est donc
 **nécessaire, pas suffisant**.
 
-### Seconde hypothèse, celle que les données soutiennent
+### Seconde hypothèse
 
 Ce qui compte n'est pas que les deux azotes soient approchés, mais qu'ils le soient par **deux
 résidus carboxylate différents**. Un seul carboxylate qui pivote entre les deux azotes ne peut
@@ -626,28 +630,55 @@ Mesure, par [bidentate_rule.py](../bidentate_rule.py) : pour chaque design, la m
 affectation de deux résidus **distincts**, l'un à ND1 et l'autre à NE2, en retenant la **plus
 mauvaise** des deux distances — le goulot d'étranglement du mécanisme bidenté.
 
-| groupe | n | goulot bidenté |
-|---|---|---|
-| ΔpKa > +0,5 (mécanisme) | **2** | **3,34 – 3,35 Å** |
-| ΔpKa ≤ +0,5 | 21 | 4,54 – 6,40 Å (3 designs), **aucune paire possible** (18 designs) |
+### Les trois tests
 
-**Séparation sans recouvrement, avec 1,19 Å de marge.** Les deux paires gagnantes sont
-`GLU73:OE1 / ASP56:OD2` sur `692deac2f1034bb6_seq0` et `ASP24:OD1 / ASP20:OD2` sur
-`36dbfc4737a3e59b_seq1`.
+| test | géométrie mesurée sur | ΔpKa calculé sur | goulots positifs | goulots négatifs | verdict |
+|---|---|---|---|---|---|
+| **1** | AF2 | AF2 | 3,34 ; 3,35 | 4,54 ; 4,55 ; 6,40 | séparation nette, **1,19 Å** |
+| **2** | AF2 | **Boltz** | 3,35 ; 4,54 ; 4,55 | **3,34** ; 6,40 | **recouvrement 1,21 Å** |
+| **3** | **Boltz** | **Boltz** | 3,19 ; 3,88 ; 4,03 | 6,23 ; 6,74 ; 7,97 | séparation nette, **2,20 Å** |
 
-### Ce que cette règle vaut, et ce qu'elle ne vaut pas
+**Le test 1 est le plus faible des trois** et c'était la dérivation d'origine : géométrie et
+ΔpKa venaient de la **même** structure, donc la corrélation était en partie auto-référentielle.
 
-**Il faut borner la revendication, et la borne est sévère.** La comparaison informative n'est
-pas « 2 contre 21 » : dix-huit designs n'ont aucun carboxylate à portée de H409 et forment une
-catégorie dégénérée. La vraie comparaison est **2 contre 3** parmi les cinq designs capables de
-former une paire bidentée. Qu'un partage propre apparaisse là par hasard a une probabilité
-d'environ **10 %** sous l'hypothèse nulle.
+**Le test 2 la met en échec.** Transporter la géométrie mesurée sur AF2 vers les ΔpKa calculés
+sur Boltz détruit la séparation. À ce stade, la règle semblait morte.
 
-Donc : **règle suggestive et prospectivement testable, pas établie.** Elle a trois propriétés
-qui la rendent utile malgré ça — elle est falsifiable, elle se calcule sur une structure
-prédite sans coût GPU, et elle est **actionnable** : elle dit de placer deux carboxylates
-distincts à ~3,4 Å de ND1 et de NE2, et non un seul à 2,5 Å. C'est une consigne de conception
-différente de celle qui a produit ce lot.
+**Le test 3 est le test correct, et la règle le passe mieux que l'original.** Un seul
+prédicteur des deux côtés, donc la règle est évaluée sur des données qui ne l'ont pas
+engendrée : la séparation est **nette avec 2,20 Å de marge**, soit presque deux fois celle du
+test 1.
+
+### Ce que l'échec du test 2 apprend
+
+La règle est **locale à la structure**. Le goulot bidenté doit être mesuré sur la structure
+dont on évalue le pKa, pas transféré d'un prédicteur à l'autre — deux prédicteurs placent les
+chaînes latérales différemment, et c'est la position du carboxylate qui fait le mécanisme.
+
+Ce n'est pas un détail d'implémentation : c'est cohérent avec le cas de
+`36dbfc4737a3e59b_seq1`, dont le goulot vaut 3,34 Å sur AF2 (ΔpKa +0,96) mais qui passe dans
+le groupe 6,23–7,97 Å sur la structure Boltz (ΔpKa −0,17). **Boltz place ses carboxylates
+ailleurs, et le mécanisme disparaît avec eux.** La géométrie et le pKa restent cohérents entre
+eux dans chaque prédicteur ; c'est la pose qui diffère.
+
+### Ce que la règle vaut, borné honnêtement
+
+La comparaison informative n'est pas « 3 contre 20 » : dix-sept designs n'ont aucune paire
+bidentée possible et forment une catégorie dégénérée. La vraie comparaison est **3 contre 3**
+parmi les six designs capables de former une paire (test 3), où un partage propre a une
+probabilité de **1/20 = 5 %** sous l'hypothèse nulle. Le test 1 donne 2 contre 3 sur cinq
+designs, soit **10 %**.
+
+Deux tests sur deux jeux de structures différents, chacun à p ≈ 0,05–0,10, tous deux passés,
+avec des marges de 1,19 et 2,20 Å. **La règle est soutenue, pas établie.** Elle a trois
+propriétés qui la rendent utile malgré ça : elle est **falsifiable** — et elle a effectivement
+été mise en échec une fois, ce qui a appris quelque chose ; elle se calcule sur une structure
+prédite **sans coût GPU** ; et elle est **actionnable**, puisqu'elle dit de placer deux
+carboxylates distincts à ~3,4 Å de ND1 et de NE2 plutôt qu'un seul à 2,5 Å. C'est une consigne
+de conception différente de celle qui a produit ce lot.
+
+**Elle n'entre dans aucun critère de classement.** Elle est rapportée comme résultat de
+méthode.
 
 Elle explique aussi, après coup, pourquoi la campagne de mutants a échoué : chaque mutation
 n'ajoutait **qu'un** carboxylate, là où la règle demande une paire coordonnée. Même `S44D`, la
@@ -787,16 +818,22 @@ Quatre groupes, selon la consigne :
 
 | groupe | définition | effectif |
 |---|---|---|
-| 1 | mécanisme pH robuste **et** pose confirmée | **2** |
+| 1 | mécanisme pH **robuste** et pose confirmée | **1** |
 | 2 | mécanisme pH robuste, pose contestée ou non mesurée | **0** |
-| 3 | pas de mécanisme pH, pose confirmée | **26** |
+| 3 | pas de mécanisme pH robuste, pose confirmée | **27** |
 | 4 | le reste | **7** |
 
-[après report] Les mutants ayant été re-scorés à leur tour, le groupe 4 ne contient plus que
-les **7 mutants rétrogradés par la règle** — carboxylate ROUGE (5) ou impossibilité
-structurale (2). Les 5 autres mutants rejoignent le groupe 3 : leur pose est confirmée, leur
-mécanisme pH absent. Le groupe 2 est vide parce que les deux designs à mécanisme ont **aussi**
-une pose confirmée.
+[après report] Le groupe 1 ne contient plus **qu'un** design. Avant la mesure inter-espèces
+ils étaient deux ; `36dbfc4737a3e59b_seq1` en est sorti parce que son mécanisme ne se
+reproduit ni sur une autre structure ni chez la souris. Le groupe 4 ne contient que les
+**7 mutants rétrogradés par la règle** — carboxylate ROUGE (5) ou impossibilité structurale
+(2). Le groupe 2 est vide parce que le seul design à mécanisme robuste a **aussi** une pose
+confirmée.
+
+**Le critère pH a quatre paliers depuis la mesure inter-espèces**, et non trois : un mécanisme
+n'est *robuste* que s'il est positif sur les trois mesures (AF2 humain, Boltz humain, Boltz
+souris). Le palier **« mécanisme non reproductible »** recueille les designs positifs sur au
+moins une mesure mais pas toutes, et se classe au-dessus du neutre.
 
 **Mais cette structure est moins informative qu'elle en a l'air.** Les 23 designs natifs
 passent le seuil de pose confirmée, et largement. La répartition 2 / 21 reflète donc
@@ -814,8 +851,10 @@ et 6 (facteurs 0,993 et 1,022) : tous trois sont dans le palier « neutre », et
 sépare est la conservation de l'épitope — 0,870 contre 0,789 et 0,778. C'est voulu, et c'est
 l'ordre de priorité du règlement appliqué littéralement.
 
-**Anti-dégât respecté** : aucun design à mécanisme pH mesuré n'est passé sous un design sans
-mécanisme. Les deux designs du groupe 2 occupent les rangs 1 et 2.
+**Anti-dégât respecté** : aucun design à mécanisme pH n'est passé sous un design sans
+mécanisme, et aucun n'a été rétrogradé au motif qu'un modèle orthogonal l'aimait moins. Le
+seul déclassement du lot, celui de `36dbfc4737a3e59b_seq1`, repose sur **une mesure de pH**
+— son ΔpKa sur deux autres structures — et non sur une préférence de pose.
 
 **Règle mutant appliquée** : seuls les ROUGE et les impossibilités structurales descendent au
 groupe 4. Les cinq mutants INDÉTERMINÉS gardent leur rang avec la mention, comme demandé — le
@@ -861,9 +900,29 @@ réversible en une ligne.
 `protein` partout. **Le quota de 20 n'est pas atteint et n'a pas été complété** : il n'existe
 que 13 squelettes indépendants, et le lot n'est pas gonflé avec des frères.
 
+| rang | design | palier pH | ΔpKa AF2 / Bz-H / Bz-M | épitope souris | i_pTM | aa |
+|---|---|---|---|---|---|---|
+| 1 | `l94_692deac2f1034bb6_seq0` | mecanisme robuste | 2.84 / 2.27 / 2.41 | 0.897 | 0.83 | 94 |
+| 2 | `l63_987fe804e455bc58_seq1` | mecanisme non reproductible | -0.29 / 0.97 / -0.7 | 0.935 | 0.83 | 63 |
+| 3 | `l59_36dbfc4737a3e59b_seq1` | mecanisme non reproductible | 0.96 / -0.17 / -0.38 | 0.839 | 0.77 | 59 |
+| 4 | `l61_cd272a8fd929c7ee_seq0` | neutre | -0.4 / -0.39 / -0.5 | 0.92 | 0.84 | 61 |
+| 5 | `l58_fd5dae7987a2388d_seq1` | neutre | -0.07 / -0.12 / -0.13 | 0.812 | 0.82 | 58 |
+| 6 | `l57_9526c9216eb7d6db_seq0` | neutre | 0.03 / -0.41 / -2.62 | 0.479 | 0.76 | 57 |
+| 7 | `l92_5c3ec1903e03c261_seq1` | contre-selectif | -0.86 / -1.82 / -1.84 | 0.929 | 0.82 | 92 |
+| 8 | `l62_a6d2f6834f22e574_seq1` | contre-selectif | -2.85 / -3.07 / -2.83 | 0.921 | 0.8 | 62 |
+| 9 | `l64_4a818d7951649b77_seq0` | contre-selectif | -1.89 / -2.16 / -2.78 | 0.889 | 0.75 | 64 |
+| 10 | `l61_a6334a3a912c86f1_seq0` | contre-selectif | -2.68 / -3.05 / -2.63 | 0.833 | 0.81 | 61 |
+| 11 | `l64_1e7ab6d8f00c9958_seq0` | contre-selectif | -2.25 / -2.3 / -2.12 | 0.831 | 0.85 | 64 |
+| 12 | `l73_5b295c4d9e1ff73f_seq0` | contre-selectif | -1.73 / -1.74 / -2.18 | 0.804 | 0.8 | 73 |
+| 13 | `l55_f6d5f550a210fd48_seq0` | contre-selectif | -2.89 / -2.56 / -2.86 | 0.604 | 0.81 | 55 |
+
+**Un seul design porte un mécanisme pH robuste.** Les rangs 2 et 3 le portent de façon non
+reproductible, les rangs 4 à 6 sont neutres, les rangs 7 à 13 contre-sélectifs. L'ordre du CSV
+transmet cette information au sélecteur, et le dossier ne prétend pas autre chose.
+
 Les `name` reprennent les identifiants de design du dépôt
-(`egfr-dIII-prod02_denovo_l63_987fe804e455bc58_seq0`), ce qui relie chaque ligne à sa
-trajectoire, ses métriques et sa structure. Aucun champ ne contient de texte adressé à un
+(`egfr-dIII-prod02_denovo_l63_987fe804e455bc58_seq1`), ce qui relie chaque ligne à sa
+trajectoire, ses métriques et ses structures. Aucun champ ne contient de texte adressé à un
 lecteur.
 
 ### b) `submission/egfr_analysis.xlsx`
@@ -881,7 +940,7 @@ automatiques, largeurs ajustées, et mise en forme conditionnelle sur ΔpKa (ver
 |---|---|---|
 | nombre de lignes ≤ quota | **OK** | 13 pour un plafond de 20, non forcé à l'égalité |
 | aucun doublon de séquence | **OK** | 0 doublon |
-| identité de séquence maximale entre deux lignes | **OK** | **25,4 %**, entre `36dbfc4737a3e59b_seq1` et `cd272a8fd929c7ee_seq1` |
+| identité de séquence maximale entre deux lignes | **OK** | **23,4 %**, entre `692deac2f1034bb6_seq0` et `4a818d7951649b77_seq0` |
 | longueurs dans les bornes 10–250 | **OK** | observé 55–94 aa |
 | aucune cystéine | **OK** | 0 séquence sur 13 — vérifié caractère par caractère, pas supposé |
 | aucun caractère non standard, espace ou retour de ligne | **OK** | aucun |
@@ -891,6 +950,152 @@ automatiques, largeurs ajustées, et mise en forme conditionnelle sur ΔpKa (ver
 Le dernier contrôle est le plus utile des huit : il relit la séquence du binder **dans le
 fichier de structure** et la compare à celle du CSV, ce qui exclut une désynchronisation entre
 la séquence soumise et la structure sur laquelle tous les pKa ont été calculés.
+
+---
+
+## Cross-réactivité souris et robustesse au prédicteur [après report]
+
+C'est l'ajout le plus conséquent du temps supplémentaire, et **il a changé le classement**.
+
+### Ce qui manquait
+
+L'objectif n°2 du challenge — la même séquence doit reconnaître P00533 **et** Q01279 — n'était
+approché que par un **proxy de séquence** : la fraction des résidus de cible contactés
+identiques chez la souris. Ce proxy ignore la conformation locale murine et ne dit rien du
+mécanisme pH chez la souris. Aucune structure du domaine III murin n'avait jamais été obtenue
+(action 5 de CLAUDE.md, restée ouverte depuis le 2 octobre).
+
+### La cible murine, dérivée deux fois
+
+[mouse_target.py](../mouse_target.py) construit le domaine III de Q01279 par **deux chemins
+qui ne partagent aucune étape**, et refuse d'écrire le fichier s'ils divergent :
+
+- **A** — alignement de la séquence Q01279 complète (1210 aa, cache UniProt) sur la séquence
+  du domaine III humain lue dans le PDB cible ;
+- **B** — la colonne `aa_mouse` de `data/egfr_residues.csv`, issue d'un alignement produit
+  séparément par `egfr_epitope_map.py`, restreinte aux PDB 309–506.
+
+**Les deux concordent.** Pourquoi ce garde-fou : se tromper de région aurait donné une cible
+murine plausible mais fausse, que Boltz-2 aurait repliée avec une confiance élevée, et la
+« cross-réactivité mesurée » aurait été un artefact que rien en aval n'aurait signalé.
+
+| | |
+|---|---|
+| domaine III murin | **UniProt 333–530**, 198 résidus |
+| identité humain/souris | **173/198 = 87,4 %** |
+| indels dans la fenêtre | **aucun** — donc la numérotation PDB 309–506 s'applique aux deux espèces et le mapping de contacts est l'identité |
+| **H409** | **conservée** — le mécanisme Route 2 est transposable |
+| His de la cible | humain {334, 346, 359, 394, 409, 483} ; souris {334, 346, 394, 409, 480} |
+| 25 positions divergentes | S324T, N337Y, S340A, R353K, **H359R**, Q366R, D369E, E388D, R390W, S418G, K443R, S460P, G461N, I467M, S468N, G471A, N473K, S474D, T478V, G479N, Q480H, **H483N**, A484P, P488S, R503Q |
+
+`H359R` confirme après coup le coldspot `A359` : c'est bien une His humaine qui devient une Arg
+chez la souris. MSA murine propre récupérée séparément (3502 séquences) — réutiliser celle de
+l'humain aurait injecté l'alignement de la mauvaise protéine.
+
+### Le contrôle qui rend la comparaison lisible
+
+Le ΔpKa publié jusqu'ici venait des structures **AF2/BindCraft**. Le comparer à un ΔpKa murin
+issu de **Boltz-2** aurait mélangé l'effet d'espèce et l'effet de prédicteur. PROPKA a donc
+été relancé sur les structures **Boltz humaines** aussi, et la comparaison d'espèce se fait
+Boltz contre Boltz. Trois mesures indépendantes par design en résultent.
+
+| rang | design | ΔpKa AF2-H | ΔpKa Boltz-H | ΔpKa Boltz-M | iptm H → M | épitope souris | verdict |
+|---|---|---|---|---|---|---|---|
+| 1 | `l94_692deac2f1034bb6_seq0` | 2.84 | 2.27 | 2.41 | 0.93 → 0.914 | 0.897 | mecanisme robuste |
+| 2 | `l63_987fe804e455bc58_seq1` | -0.29 | 0.97 | -0.7 | 0.946 → 0.94 | 0.935 | mecanisme non reproductible |
+| 3 | `l63_987fe804e455bc58_seq0` | -0.22 | 1.04 | -0.11 | 0.948 → 0.937 | 0.906 | mecanisme non reproductible |
+| 4 | `l59_36dbfc4737a3e59b_seq1` | 0.96 | -0.17 | -0.38 | 0.938 → 0.928 | 0.839 | mecanisme non reproductible |
+| 5 | `l61_cd272a8fd929c7ee_seq0` | -0.4 | -0.39 | -0.5 | 0.941 → 0.933 | 0.92 | neutre |
+| 6 | `l61_cd272a8fd929c7ee_seq1` | -0.4 | -0.36 | -0.37 | 0.938 → 0.942 | 0.9 | neutre |
+| 7 | `l59_36dbfc4737a3e59b_seq0` | -1.19 | -0.41 | -0.33 | 0.925 → 0.928 | 0.897 | neutre |
+| 8 | `l58_fd5dae7987a2388d_seq1` | -0.07 | -0.12 | -0.13 | 0.936 → 0.938 | 0.812 | neutre |
+| 9 | `l58_fd5dae7987a2388d_seq0` | -0.01 | -0.11 | -2.65 | 0.937 → 0.944 | 0.806 | neutre |
+| 10 | `l57_9526c9216eb7d6db_seq0` | 0.03 | -0.41 | -2.62 | 0.92 → 0.851 | 0.479 | neutre |
+| 11 | `l57_9526c9216eb7d6db_seq1` | -0.23 | 0.45 | -2.48 | 0.913 → 0.815 | 0.478 | neutre |
+| 13 | `l92_5c3ec1903e03c261_seq1` | -0.86 | -1.82 | -1.84 | 0.91 → 0.879 | 0.929 | contre-selectif |
+| 14 | `l62_a6d2f6834f22e574_seq1` | -2.85 | -3.07 | -2.83 | 0.935 → 0.921 | 0.921 | contre-selectif |
+| 15 | `l92_5c3ec1903e03c261_seq0` | -2.36 | -2.96 | -2.95 | 0.866 → 0.856 | 0.911 | contre-selectif |
+| 16 | `l64_4a818d7951649b77_seq0` | -1.89 | -2.16 | -2.78 | 0.921 → 0.911 | 0.889 | contre-selectif |
+| 17 | `l61_a6334a3a912c86f1_seq0` | -2.68 | -3.05 | -2.63 | 0.948 → 0.939 | 0.833 | contre-selectif |
+| 18 | `l64_1e7ab6d8f00c9958_seq0` | -2.25 | -2.3 | -2.12 | 0.932 → 0.932 | 0.831 | contre-selectif |
+| 19 | `l62_a6d2f6834f22e574_seq0` | -2.72 | -3.57 | -3.16 | 0.949 → 0.93 | 0.812 | contre-selectif |
+| 20 | `l61_a6334a3a912c86f1_seq1` | -2.75 | -2.47 | -2.5 | 0.957 → 0.948 | 0.806 | contre-selectif |
+| 21 | `l73_5b295c4d9e1ff73f_seq0` | -1.73 | -1.74 | -2.18 | 0.932 → 0.924 | 0.804 | contre-selectif |
+| 22 | `l64_4a818d7951649b77_seq1` | -1.85 | -2.47 | -2.52 | 0.909 → 0.873 | 0.785 | contre-selectif |
+| 23 | `l73_5b295c4d9e1ff73f_seq1` | -1.85 | -2.53 | -1.72 | 0.93 → 0.926 | 0.761 | contre-selectif |
+| 24 | `l55_f6d5f550a210fd48_seq0` | -2.89 | -2.56 | -2.86 | 0.848 → 0.836 | 0.604 | contre-selectif |
+
+### Trois résultats, dont deux inattendus
+
+**1. Le design de rang 1 tient sur les trois axes.** `692deac2f1034bb6_seq0` : ΔpKa de
+**+2,84** (AF2 humain), **+2,27** (Boltz humain), **+2,41** (Boltz souris). Il survit donc à
+un changement de **prédicteur de structure** et à un changement d'**espèce**, avec un `iptm`
+murin de 0,914 et 89,7 % de son épitope humain retrouvé chez la souris. C'est le seul design
+du lot dans ce cas, et c'est le meilleur résultat du projet.
+
+**2. L'ancien rang 2 ne résiste pas, et il a été déclassé.** `36dbfc4737a3e59b_seq1` passait
+pour le second porteur de mécanisme avec un ΔpKa de **+0,96**. Sur la structure Boltz il tombe
+à **−0,17**, et chez la souris à **−0,38**. **Son mécanisme était une propriété de la structure
+AF2, pas de la séquence.** C'est précisément ce qu'un contrôle orthogonal doit attraper, et ça
+justifie à lui seul le coût de l'étape.
+
+**3. Deux designs gagnent un mécanisme que l'AF2 ne voyait pas — et le perdent chez la
+souris.** `987fe804e455bc58` seq0 et seq1 passent de −0,22 / −0,29 sur AF2 à **+1,04** et
+**+0,97** sur Boltz, puis à −0,11 et −0,70 chez la souris. Le mécanisme n'est donc ni
+reproductible entre prédicteurs, ni conservé entre espèces.
+
+### Accord des prédicteurs, chiffré
+
+Sur les 23 designs, l'écart ΔpKa(Boltz) − ΔpKa(AF2) va de **−1,13 à +1,26**, moyenne −0,10,
+médiane −0,10. Le **verdict** de mécanisme (seuil 0,5) concorde sur **20 designs sur 23**.
+
+Autrement dit : le ΔpKa est globalement reproductible, mais les trois désaccords tombent
+**exactement sur les cas limites** — ceux dont le ΔpKa est compris entre −0,3 et +1,1. Or ce
+sont précisément les designs qu'on serait tenté de promouvoir. L'incertitude de PROPKA, environ
+une unité de pKa, suffit à faire basculer un design d'un palier à l'autre, et c'est la raison
+pour laquelle le critère pH a été durci.
+
+### Le durcissement du critère, et son effet
+
+Dans [rank_designs.py](../rank_designs.py), un mécanisme n'est **robuste** que s'il est positif
+sur **les trois mesures** : AF2 humain, Boltz humain, Boltz souris. Un palier intermédiaire,
+**« mécanisme non reproductible »**, recueille les designs positifs sur au moins une mesure mais
+pas sur toutes. Il se classe au-dessus du neutre — un design positif sur une structure reste un
+meilleur pari pH qu'un design positif sur aucune — mais la mention voyage avec lui.
+
+| palier | effectif (designs natifs) |
+|---|---|
+| mécanisme **robuste** | **1** |
+| mécanisme **non reproductible** | 3 |
+| neutre | 4 |
+| contre-sélectif | 15 |
+
+### La cross-réactivité elle-même : bonne, mais pas uniforme
+
+| | |
+|---|---|
+| Δ iptm souris − humain | **−0,098 à +0,007**, moyenne **−0,016** |
+| épitope humain retrouvé chez la souris | **0,478 à 0,935** |
+
+**Le passage à la souris ne coûte pratiquement rien en confiance de liaison** — à 87,4 %
+d'identité sur le domaine, c'est attendu, et c'est le résultat qui valide le choix d'épitope
+fait sur la conservation mesurée plutôt que sur l'épitope documenté du cétuximab.
+
+Mais trois designs changent de mode de liaison chez la souris :
+`9526c9216eb7d6db` seq0 (**0,479**) et seq1 (**0,478**), et `f6d5f550a210fd48_seq0` (**0,604**).
+Ils perdent la moitié de leur épitope. Le proxy de séquence ne les distinguait **pas** : leur
+conservation d'épitope valait 0,778 et 0,800, dans la moyenne du lot. **C'est la démonstration
+directe que le proxy était insuffisant**, et c'est pourquoi l'objectif n°2 est désormais classé
+sur la mesure, le proxy ne servant plus qu'en départage pour les mutants, non prédits contre la
+souris.
+
+### Ce que ça ne dit pas
+
+Boltz-2 prédit un complexe avec une cible murine dont la **structure n'a jamais été
+déterminée expérimentalement** — elle est elle-même prédite, à partir d'une séquence
+correctement extraite. L'absence d'indel et 87,4 % d'identité rendent le repliement murin très
+probablement superposable à l'humain, mais « très probablement » n'est pas « mesuré ». Et deux
+prédicteurs d'accord restent deux prédicteurs, tous deux entraînés sur la PDB.
 
 ---
 
@@ -919,7 +1124,8 @@ P00533 / Q01279).
 | rotamères distincts | 0,30 Å d'étendue de centroïde | **posé par moi**, sans référence |
 | contact inter-résidus | 5,0 Å | convention usuelle |
 | pose confirmée | récupération ≥ 0,50 **et** iptm ≥ 0,60 | **posés par moi, non calibrés** — aucun jeu de référence de binders de novo validés expérimentalement contre cette cible n'existe pour les calibrer |
-| règle bidentée | goulot ≤ ~3,4 Å | **dérivée a posteriori de 2 cas positifs** — suggestive, non établie |
+| règle bidentée | goulot ≤ ~3,4 Å (AF2) / ~4,0 Å (Boltz) | **dérivée a posteriori**, puis testée sur un second jeu de structures : passe avec 2,20 Å de marge, échoue si la géométrie est transportée d'un prédicteur à l'autre. Soutenue, non établie |
+| mécanisme pH **robuste** | ΔpKa > 0,5 sur **les trois** mesures | durcissement introduit après la mesure inter-espèces, parce que le critère sur une seule structure promouvait un design qui ne se reproduit pas |
 
 Le seuil de pose confirmée s'est révélé **non discriminant** : les 23 designs natifs le
 passent. Il ne porte donc aucune information de classement, ce qui est dit en phase 4 plutôt
@@ -930,12 +1136,15 @@ classement — elle est rapportée comme résultat de méthode, pas utilisée co
 
 ### Non mesuré du tout
 
-- **La cross-réactivité souris réelle.** Aucune structure du domaine III de **Q01279** n'a été
-  obtenue ni modélisée. L'objectif n°2 est approché par un **proxy de séquence** : la fraction
-  des résidus de cible contactés qui sont identiques chez la souris. Un proxy de séquence ne
-  dit rien de la conformation locale murine. C'est la lacune la plus sérieuse du dossier après
-  le pH, et elle rend le design multicible — pourtant la fonctionnalité qui avait motivé le
-  passage à BindCraft 2.0 — jamais utilisé.
+- **Le design multicible n'a jamais servi.** C'était la fonctionnalité qui avait motivé le
+  passage à BindCraft 2.0, et aucune campagne n'a été lancée contre les deux espèces
+  simultanément. La cross-réactivité a été **évaluée** [après report] mais jamais
+  **optimisée** : les designs n'ont été conçus que contre l'humain. Qu'ils reconnaissent la
+  souris est un constat, pas un résultat de conception.
+- **La structure murine est elle-même prédite.** Le domaine III de Q01279 n'a pas de structure
+  expérimentale ; la séquence a été correctement extraite et vérifiée deux fois, mais son
+  repliement est inféré. L'absence d'indel et 87,4 % d'identité le rendent très probablement
+  superposable à l'humain — « très probablement » n'est pas « mesuré ».
 - **La conformation étendue.** 6ARU est replié. Toute SASA et toute géométrie calculées ici en
   héritent.
 - **La corréférence de face des hotspots.** Les 16,73 Å d'étendue CA disent que les quatre
@@ -971,6 +1180,10 @@ classement — elle est rapportée comme résultat de méthode, pas utilisée co
 - **Le facteur de sélectivité global suppose les sites indépendants.** Ils ne le sont pas
   quand deux groupes se touchent, et le produit cumule une erreur par groupe. C'est pourquoi
   la version restreinte aux groupes qui bougent de plus que le bruit est rapportée à côté.
+- **La règle bidentée a été mise en échec une fois.** Transporter la géométrie d'un
+  prédicteur vers les pKa d'un autre détruit sa séparation. Elle n'est valable que mesurée sur
+  la structure dont on évalue le pKa. L'échec est rapporté parce qu'il borne l'usage de la
+  règle.
 - **Le switch demandé n'est pas celui qui est atteint.** Le règlement demande *« no detectable
   binding at pH 7.4 »*, un basculement binaire. Ce qui est mesuré ici est un **décalage de
   pKa** sur un seul résidu, qui prédit un rapport d'affinité d'un facteur de l'ordre de
@@ -1001,6 +1214,13 @@ classement — elle est rapportée comme résultat de méthode, pas utilisée co
    produire zéro prédiction avec un code retour 0. Un entrypoint `diagnose` a été ajouté pour
    que ça n'arrive qu'une fois, et `predict` imprime désormais la sortie de boltz dès qu'une
    prédiction manque, **quel que soit le code retour**.
+6. **Des vérifications `pgrep` qui se détectaient elles-mêmes.** `pgrep -f "modal run
+   modal_boltz2"` correspond à la ligne de commande du test lui-même, d'où plusieurs
+   « run en cours » faux. Un test d'état qui ne peut pas renvoyer « terminé » n'est pas un test.
+7. **Une règle de conception annoncée avant d'avoir été testée hors de ses propres données.**
+   La séparation nette du premier test reposait sur une géométrie et un pKa issus de la même
+   structure. Il a fallu un second jeu de structures pour savoir ce que la règle valait — et
+   un test intermédiaire pour découvrir qu'elle est locale à la structure.
 
 ---
 
@@ -1016,6 +1236,8 @@ L'auteur dormait. Ces choix n'ont pas été arbitrés par un humain.
 | 4 | **Critère pH discrétisé en trois paliers** | Classer sur des écarts de ΔpKa inférieurs à l'erreur de PROPKA serait lire un ordre dans du bruit. |
 | 5 | **Trois échantillons de diffusion au lieu de trois graines** | Le tronc de Boltz-2 est déterministe à graine fixée ; le relancer trois fois coûterait trois fois le calcul pour un tronc identique. Ce qui varie entre poses est l'étape de diffusion. |
 | 6 | **ESM-2 non calculé** | Hors classement par construction. Le temps est allé au re-scoring orthogonal, qui entre dans le classement. |
-| 7 | **Design natif retenu pour `a6d2f6834f22e574`** plutôt que son mutant `S44D seq1` | Le mutant est le seul membre non contre-sélectif du squelette, mais son gain est sous le bruit et sa structure est une greffe non relaxée jamais passée par un prédicteur. Choix conservateur, explicitement réversible. |
+| 7 | **Design natif retenu pour `a6d2f6834f22e574`** plutôt que son mutant `S44D seq1` | Le mutant est le seul membre non contre-sélectif du squelette, mais son gain est sous le bruit. [après report] Son coût structural mesuré est de plus **le pire des douze** (−0,079), ce qui transforme un choix conservateur en choix étayé. |
+| 8 | [après report] **Durcissement du critère pH** : mécanisme robuste = positif sur AF2 humain, Boltz humain **et** Boltz souris | Le critère sur une seule structure classait `36dbfc4737a3e59b_seq1` au rang 2 ; deux mesures indépendantes le contredisent. Un mécanisme qui ne survit pas au changement de structure est une propriété de la structure. |
+| 9 | [après report] **Objectif n°2 classé sur la mesure**, le proxy de séquence passant en départage | L'épitope retrouvé chez la souris par un modèle indépendant est une évidence strictement plus forte. Et le proxy était démontrablement insuffisant : il ne distinguait pas les trois designs qui perdent la moitié de leur épitope chez la souris. |
 
 ---

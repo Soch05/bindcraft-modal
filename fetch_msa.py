@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Récupère UNE fois la MSA du domaine III d'EGFR, et la met en cache sur disque.
 
-    uv run --with requests python fetch_msa.py
+    uv run --with requests --with gemmi python fetch_msa.py [egfr_dIII] [megfr_dIII]
 
 POURQUOI PRÉCALCULER. Boltz-2 sait appeler un serveur MSA distant à chaque complexe
 (`--use_msa_server`). Avec 20 à 60 complexes à prédire, c'est autant d'appels réseau
@@ -28,19 +28,18 @@ from pathlib import Path
 import requests
 
 TARGET_PDB = Path("inputs/6ARU_A_309-506.pdb")
-OUT_A3M = Path("inputs/egfr_dIII.a3m")
+MOUSE_FASTA = Path("inputs/mEGFR_dIII.fasta")
 
 API = "https://api.colabfold.com"
 # `env` = UniRef30 + les bases environnementales. C'est le mode par défaut de ColabFold pour
 # un monomère, et celui sur lequel Boltz-2 a été évalué.
 MODE = "env"
-QUERY_NAME = "egfr_dIII"
 POLL_SECONDS = 10
 MAX_WAIT_SECONDS = 1800
 HEADERS = {"User-Agent": "adaptyv-challenge1-egfr (contact via depot public)"}
 
 
-def target_sequence() -> str:
+def human_sequence() -> str:
     import gemmi
 
     structure = gemmi.read_structure(str(TARGET_PDB))
@@ -48,10 +47,23 @@ def target_sequence() -> str:
     return gemmi.one_letter_code([r.name for r in structure[0]["A"]]).upper()
 
 
-def submit(sequence: str) -> str:
+def mouse_sequence() -> str:
+    lines = [l.strip() for l in MOUSE_FASTA.read_text().splitlines() if l.strip()]
+    return "".join(l for l in lines if not l.startswith(">")).upper()
+
+
+# Les deux cibles. La murine vient de mouse_target.py, qui la derive deux fois de maniere
+# independante et refuse d'ecrire le fasta si les deux dérivations divergent.
+TARGETS = {
+    "egfr_dIII": (human_sequence, Path("inputs/egfr_dIII.a3m")),
+    "megfr_dIII": (mouse_sequence, Path("inputs/mEGFR_dIII.a3m")),
+}
+
+
+def submit(sequence: str, name: str) -> str:
     response = requests.post(
         f"{API}/ticket/msa",
-        data={"q": f">egfr_dIII\n{sequence}\n", "mode": MODE},
+        data={"q": f">{name}\n{sequence}\n", "mode": MODE},
         headers=HEADERS, timeout=120,
     )
     response.raise_for_status()
@@ -79,7 +91,7 @@ def wait(ticket: str) -> None:
         time.sleep(POLL_SECONDS)
 
 
-def download(ticket: str, sequence: str) -> str:
+def download(ticket: str, sequence: str, name: str) -> str:
     """Fusionne les .a3m de l'archive en UN SEUL alignement valide.
 
     L'archive de ColabFold contient plusieurs .a3m (uniref, bases environnementales), et
@@ -99,7 +111,7 @@ def download(ticket: str, sequence: str) -> str:
     bloc.
     """
     blob = requests.get(f"{API}/result/download/{ticket}", headers=HEADERS, timeout=600).content
-    merged = [f">{QUERY_NAME}", sequence]
+    merged = [f">{name}", sequence]
     seen = {sequence}
     with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as archive:
         for member in sorted(archive.getmembers(), key=lambda m: m.name):
@@ -116,7 +128,7 @@ def download(ticket: str, sequence: str) -> str:
                 if not header.startswith(">"):
                     continue
                 # On saute la copie de la requête propre à ce bloc.
-                if header[1:].split()[0] == QUERY_NAME or body in seen:
+                if header[1:].split()[0] == name or body in seen:
                     continue
                 merged.extend([header, body])
                 seen.add(body)
@@ -127,27 +139,37 @@ def download(ticket: str, sequence: str) -> str:
     return "\n".join(merged) + "\n"
 
 
-def main() -> None:
-    if OUT_A3M.is_file() and OUT_A3M.stat().st_size > 0:
-        existing = OUT_A3M.read_text()
-        print(f"deja en cache : {OUT_A3M} ({existing.count('>')} sequences) — rien a faire")
+def fetch_one(name: str, sequence: str, out_path: Path) -> None:
+    if out_path.is_file() and out_path.stat().st_size > 0:
+        existing = out_path.read_text()
+        print(f"{name}: deja en cache, {existing.count('>')} sequences — rien a faire")
         return
-    sequence = target_sequence()
-    print(f"cible : {len(sequence)} residus")
-    ticket = submit(sequence)
-    print(f"ticket {ticket}, mode {MODE}")
+    print(f"{name}: {len(sequence)} residus")
+    ticket = submit(sequence, name)
+    print(f"  ticket {ticket}, mode {MODE}")
     wait(ticket)
-    text = download(ticket, sequence)
+    text = download(ticket, sequence, name)
 
-    # Garde-fou : une seule requete en tete, et c'est bien notre cible.
     lines = text.splitlines()
-    queries = [i for i, l in enumerate(lines) if l.startswith(f">{QUERY_NAME}")]
+    queries = [i for i, l in enumerate(lines) if l.startswith(f">{name}")]
     if queries != [0] or lines[1] != sequence:
         raise SystemExit(
             f"a3m mal forme : en-tetes de requete aux lignes {queries}, attendu [0]"
         )
-    OUT_A3M.write_text(text)
-    print(f"-> {OUT_A3M} : {text.count('>')} sequences, {OUT_A3M.stat().st_size / 1e6:.2f} Mo")
+    out_path.write_text(text)
+    print(f"  -> {out_path} : {text.count('>')} sequences, "
+          f"{out_path.stat().st_size / 1e6:.2f} Mo")
+
+
+def main() -> None:
+    wanted = sys.argv[1:] or list(TARGETS)
+    unknown = [name for name in wanted if name not in TARGETS]
+    if unknown:
+        raise SystemExit(f"cible(s) inconnue(s) : {unknown}. Connues : {list(TARGETS)}")
+    for name in wanted:
+        getter, out_path = TARGETS[name]
+        fetch_one(name, getter(), out_path)
+        print()
 
 
 if __name__ == "__main__":

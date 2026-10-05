@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Teste une règle de conception : faut-il DEUX carboxylates distincts sur H409 ?
 
-    uv run --with biopython python bidentate_rule.py
+    uv run --with biopython --with gemmi python bidentate_rule.py
 
 D'OÙ VIENT LA QUESTION. Sur les 23 designs, deux seulement font monter le pKa de H409. Le
 critère géométrique qui avait servi à les sélectionner — « un pont salin à moins de 4 Å » —
@@ -37,8 +37,15 @@ from Bio.PDB import PDBParser
 warnings.filterwarnings("ignore")
 
 STRUCTURES = Path("structures/wt")
+BOLTZ_HUMAN = Path("out/rescore01")
 PROPKA_H409 = Path("out/propka_h409.csv")
+CROSS = Path("out/cross_species.csv")
 OUT = Path("out/bidentate.csv")
+OUT_BOLTZ = Path("out/bidentate_boltz.csv")
+
+# Décalage de la numérotation Boltz (1..198) vers la numérotation PDB (309..506). Valable
+# parce qu'il n'y a aucun indel dans la fenêtre — vérifié par mouse_target.py.
+PDB_OFFSET = 308
 
 TARGET_CHAIN, BINDER_CHAIN = "A", "B"
 TARGET_HIS = 409
@@ -61,8 +68,35 @@ def closest_oxygen(residue, coord: np.ndarray) -> tuple[float, str]:
     )
 
 
-def analyse(design: str) -> dict | None:
-    path = STRUCTURES / f"{design}.pdb"
+def best_boltz(folder: Path) -> Path | None:
+    """L'échantillon Boltz de plus haut iptm, renuméroté en PDB dans un fichier temporaire."""
+    import json
+    import tempfile
+
+    import gemmi
+
+    best, best_value = None, -1.0
+    for confidence in folder.glob("confidence_*.json"):
+        value = json.loads(confidence.read_text()).get("iptm")
+        if value is None:
+            continue
+        stem = confidence.name.replace("confidence_", "").replace(".json", "")
+        candidate = folder / f"{stem}.cif"
+        if candidate.is_file() and value > best_value:
+            best, best_value = candidate, value
+    if best is None:
+        return None
+    structure = gemmi.read_structure(str(best))
+    structure.setup_entities()
+    for residue in structure[0][TARGET_CHAIN]:
+        residue.seqid.num += PDB_OFFSET
+    out = Path(tempfile.mkdtemp(prefix="bident_")) / f"{folder.name}.pdb"
+    structure.write_pdb(str(out))
+    return out
+
+
+def analyse(design: str, path: Path | None = None) -> dict | None:
+    path = path or STRUCTURES / f"{design}.pdb"
     if not path.is_file():
         return None
     model = PDBParser(QUIET=True).get_structure(design, str(path))[0]
@@ -117,59 +151,112 @@ def analyse(design: str) -> dict | None:
     return row
 
 
+def separation(rows: list[dict], shift_key: str) -> str:
+    """La règle sépare-t-elle les designs à mécanisme des autres, sur CE jeu de ΔpKa ?"""
+    with_pair = [r for r in rows if isinstance(r.get("bidente_goulot_A"), float)]
+    positive = [r["bidente_goulot_A"] for r in with_pair if r[shift_key] > PKA_NOISE]
+    negative = [r["bidente_goulot_A"] for r in with_pair if r[shift_key] <= PKA_NOISE]
+    orphan = sum(
+        1 for r in rows
+        if not isinstance(r.get("bidente_goulot_A"), float) and r[shift_key] > PKA_NOISE
+    )
+    print(f"  positifs avec paire : {sorted(round(v, 2) for v in positive)}")
+    print(f"  negatifs avec paire : {sorted(round(v, 2) for v in negative)}")
+    print(f"  positifs SANS paire bidentee possible : {orphan}")
+    if not positive or not negative:
+        return "indecidable (un des deux groupes est vide)"
+    gap = min(negative) - max(positive)
+    if gap > 0:
+        verdict = f"SEPARATION NETTE, marge {gap:.2f} A"
+    else:
+        verdict = f"RECOUVREMENT de {-gap:.2f} A — la regle ne separe pas"
+    print(f"  -> {verdict}")
+    return verdict
+
+
 def main() -> None:
-    shifts = {
+    af2_shift = {
         r["design"]: float(r["dpKa_H409"])
         for r in csv.DictReader(PROPKA_H409.open(newline="")) if r["type"] == "WT"
     }
-    rows = []
-    for design, shift in shifts.items():
+    boltz_shift = {}
+    if CROSS.is_file():
+        for record in csv.DictReader(CROSS.open(newline="")):
+            value = record.get("dpKa_humain_Boltz")
+            if value:
+                boltz_shift[record["design"]] = float(value)
+
+    # --- Test 1 : geometrie AF2 contre dpKa AF2 (la derivation d'origine) --------------
+    print("=" * 84)
+    print("TEST 1 — geometrie mesuree sur AF2, dpKa calcule sur AF2")
+    print("  ATTENTION : les deux viennent de la MEME structure, donc la correlation est")
+    print("  en partie auto-referentielle. C'est le test le plus faible des trois.")
+    print("=" * 84)
+    af2_rows = []
+    for design, shift in af2_shift.items():
         row = analyse(design)
         if row is None:
             continue
         row["dpKa_H409"] = shift
-        row["mecanisme"] = "oui" if shift > PKA_NOISE else "non"
-        rows.append(row)
+        row["source_geometrie"] = "AF2"
+        af2_rows.append(row)
+    verdict_af2 = separation(af2_rows, "dpKa_H409")
 
-    rows.sort(key=lambda r: -r["dpKa_H409"])
-    print(f"{'design':<28}{'dpKa':>7}{'goulot bidente':>16}  paire")
-    print("-" * 92)
-    for row in rows:
-        bottleneck = row["bidente_goulot_A"]
-        print(f"{row['design'][-26:]:<28}{row['dpKa_H409']:>7.2f}"
-              f"{str(bottleneck):>16}  "
-              f"{row['bidente_ND1']}/{row['bidente_NE2']}")
-
-    with_mechanism = [r for r in rows if r["mecanisme"] == "oui"]
-    without = [r for r in rows if r["mecanisme"] == "non"]
-
-    def bottlenecks(group: list[dict]) -> list[float]:
-        return [r["bidente_goulot_A"] for r in group
-                if isinstance(r["bidente_goulot_A"], float)]
-
-    yes, no = bottlenecks(with_mechanism), bottlenecks(without)
+    # --- Test 2 : geometrie AF2 contre dpKa Boltz (croise) ----------------------------
     print()
-    print(f"avec mecanisme (dpKa > {PKA_NOISE}) : {len(with_mechanism)} designs")
-    if yes:
-        print(f"   goulot bidente : {min(yes):.2f} a {max(yes):.2f} A")
-    print(f"sans mecanisme : {len(without)} designs")
-    if no:
-        print(f"   goulot bidente : {min(no):.2f} a {max(no):.2f} A "
-              f"({len(without) - len(no)} sans paire bidentee possible)")
-    if yes and no:
-        gap = min(no) - max(yes)
-        print()
-        if gap > 0:
-            print(f"SEPARATION NETTE : aucun recouvrement. Le seuil se situe entre "
-                  f"{max(yes):.2f} et {min(no):.2f} A ({gap:.2f} A de marge).")
-        else:
-            print(f"RECOUVREMENT de {-gap:.2f} A : la regle ne separe pas les deux groupes.")
+    print("=" * 84)
+    print("TEST 2 — geometrie mesuree sur AF2, dpKa calcule sur Boltz (croise)")
+    print("=" * 84)
+    crossed = [
+        {**r, "dpKa_Boltz": boltz_shift[r["design"]]}
+        for r in af2_rows if r["design"] in boltz_shift
+    ]
+    verdict_cross = separation(crossed, "dpKa_Boltz") if crossed else "non calculable"
 
-    with OUT.open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
-    print(f"\n-> {len(rows)} lignes dans {OUT}")
+    # --- Test 3 : geometrie Boltz contre dpKa Boltz (le test propre) ------------------
+    print()
+    print("=" * 84)
+    print("TEST 3 — geometrie mesuree sur Boltz, dpKa calcule sur Boltz")
+    print("  C'est le test CORRECT : un seul predicteur des deux cotes, donc la regle est")
+    print("  evaluee sur des donnees qui ne l'ont pas engendree.")
+    print("=" * 84)
+    boltz_rows = []
+    if BOLTZ_HUMAN.is_dir():
+        for design, shift in boltz_shift.items():
+            folder = BOLTZ_HUMAN / design
+            if not folder.is_dir():
+                continue
+            path = best_boltz(folder)
+            if path is None:
+                continue
+            row = analyse(design, path)
+            if row is None:
+                continue
+            row["dpKa_Boltz"] = shift
+            row["source_geometrie"] = "Boltz"
+            boltz_rows.append(row)
+    verdict_boltz = separation(boltz_rows, "dpKa_Boltz") if boltz_rows else "non calculable"
+
+    print()
+    print("=" * 84)
+    print("BILAN")
+    print("=" * 84)
+    print(f"  AF2 geometrie  / AF2 dpKa    : {verdict_af2}")
+    print(f"  AF2 geometrie  / Boltz dpKa  : {verdict_cross}")
+    print(f"  Boltz geometrie/ Boltz dpKa  : {verdict_boltz}")
+
+    if af2_rows:
+        with OUT.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(af2_rows[0]))
+            writer.writeheader()
+            writer.writerows(af2_rows)
+        print(f"\n-> {len(af2_rows)} lignes dans {OUT}")
+    if boltz_rows:
+        with OUT_BOLTZ.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(boltz_rows[0]))
+            writer.writeheader()
+            writer.writerows(boltz_rows)
+        print(f"-> {len(boltz_rows)} lignes dans {OUT_BOLTZ}")
 
 
 if __name__ == "__main__":
