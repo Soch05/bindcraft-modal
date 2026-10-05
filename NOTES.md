@@ -3524,3 +3524,59 @@ Vérifié : 23 `bindcraft` et 12 `mutant` ; 20 `seq0` et 15 `seq1`. Ce qui compt
 l'indépendance des poses reste le **squelette**, pas l'index : deux séquences de même hash ne
 sont pas deux poses indépendantes, et c'est pourquoi l'allocation n'en soumet qu'une par
 squelette.
+
+### 5 octobre, fin — paquet de soumission complet, coupé à 6 designs
+
+Le texte officiel de la soumission, relu directement, dit deux choses qui ont changé le
+travail. Les organisateurs suggèrent explicitement *« ask your Claudes to write a methods
+paper and create a metadata package »*, donc les deux livrables manquants étaient nommés. Et
+*« for Tracks 2 and 3, we will provide the additional information you submit to Claude to help
+select designs »* : le destinataire est un modèle, d'où l'anglais et une structure lisible par
+machine.
+
+**Coupe de 13 à 6 designs.** Règle explicite `EXCLUDED_PH_TIERS` dans `build_submission.py` :
+les 7 designs du palier **contre-sélectif** sont écartés. Motif inscrit dans le code — leur
+liaison est prédite défavorisée à pH 6,5, soit l'inverse du critère de rang le plus élevé, et
+le texte demande de soumettre ce qu'on pense devoir le mieux se comporter. Coût : 7 squelettes
+indépendants perdus. Identité maximale entre lignes : **20,7 %**, 8 contrôles passés.
+
+⚠️ **Conflit signalé et non résolu par la règle** : couper sur le seul pH garde
+`9526c9216eb7d6db_seq0` au rang 6, alors qu'il ne retrouve que **0,479** de son épitope chez la
+souris — il échoue l'objectif n°2. Trois mesures indépendantes le désignent comme le point
+faible des 6 : épitope murin 0,479, ipSAE A→B 0,704 (dernier), ΔpKa souris −2,62. Le passer à
+5 est un changement d'une ligne.
+
+**ipSAE — fait, via l'implémentation de référence.** `DunbrackLab/IPSAE` téléchargé, SHA256
+enregistré dans la sortie, exécuté tel quel : réécrire la formule de mémoire aurait produit un
+nombre plausible qui n'en serait pas un. Cutoffs 10 et 15 Å, ceux des exemples de l'outil.
+ipSAE symétrisé **0,839 à 0,919** ; direction cible→binder, plus exigeante, **0,704 à 0,831**.
+
+⚠️ **Trois colonnes de l'outil sont ÉCARTÉES et la raison est dans le code** : `ipTM_af` vaut
+0,000 partout (l'outil attend un JSON AF2/AF3), `pDockQ` et `pDockQ2` sont constants sur les
+6 designs (branche Boltz non renseignée), et `n0res` est le compte de normalisation de d0 —
+égal à la longueur de chaîne alignée — et **non** un nombre de résidus d'interface, ce que ma
+première documentation affirmait à tort. Vu en lisant le `.txt` brut, pas supposé. J'ai failli
+publier une constante comme métrique.
+
+**Auto-cohérence — faite, sur CPU.** ProteinMPNN `v_48_020`, T=0,1, 8 échantillons, binder
+redessiné dans son contexte avec la cible fixe. Récupération **0,429 à 0,668, médiane 0,597**.
+Circularité partielle énoncée : BindCraft utilise ProteinMPNN, mais sélectionne après
+repliement sur filtres AF2 et non sur l'argmax de MPNN — d'où ~0,6 et non ~1,0.
+`a6d2f6834f22e574` est dernier (0,43), comme sur le facteur global, le ΔpKa et le PLL ESM-2.
+
+**Liabilités de séquence — faites, pondérées par la SASA.** 0 liabilité dure sur 35 designs
+(aucune cystéine libre). 6 séquons N-glyc comptés mais **non retenus** : expression
+acellulaire, donc pas de machinerie de glycosylation. Un motif enfoui n'est pas une liabilité,
+d'où la pondération par l'exposition réelle plutôt qu'un grep de motifs.
+
+**Erreur coûteuse de la séquence** : `--write_full_pae` ajouté **sans étendre la boucle de
+copie vers le Volume**, qui ne prenait que `.cif` et `confidence_*.json`. Les matrices PAE ont
+été calculées puis détruites avec le conteneur, ~$0,50 perdus. Le glob est désormais générique
+(`*.cif`, `*.pdb`, `*.npz`, `*.npy`, `*.json`) et le log affiche le nombre de fichiers
+conservés par complexe.
+
+**Copie de travail sortie de `submission/`.** `egfr_analysis.xlsx` y vivait alors qu'elle ne
+doit pas partir chez Adaptyv ; déplacée en `docs/egfr_analysis_working_copy.xlsx`.
+`submission/` ne contient plus que le livrable.
+
+Coût GPU cumulé : **~$4,2**.

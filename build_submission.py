@@ -36,7 +36,9 @@ STRUCTURES = Path("structures/wt")
 
 OUT_DIR = Path("submission")
 OUT_CSV = OUT_DIR / "egfr_challenge1_submission.csv"
-OUT_XLSX = OUT_DIR / "egfr_analysis.xlsx"
+# La copie de travail NE PART PAS a Adaptyv : elle vit donc hors de submission/, pour
+# qu'un upload du dossier ne l'emporte pas par inadvertance.
+OUT_XLSX = Path("docs/egfr_analysis_working_copy.xlsx")
 
 # Règlement §3 : 20 max en Track 3, et le CSV est ordonné par classement.
 QUOTA = 20
@@ -49,6 +51,19 @@ STANDARD_AA = set("ACDEFGHIKLMNPQRSTVWY")
 # l'objectif n°1 et perd au passage le filtrage BindCraft et la validation orthogonale que
 # son parent possède. Règle posée ici, appliquée dans `select`.
 MUTANT_REQUIRES = {"mecanisme_robustesse": "robuste", "verdict_carboxylate": "VERT"}
+
+# PALIERS pH EXCLUS DE LA SOUMISSION.
+#
+# Le texte officiel demande de soumettre les designs classes « by how you would rank your
+# molecules » et encourage a soumettre ceux qu'on pense devoir le mieux se comporter
+# experimentalement. Or le critere de rang le plus eleve du challenge est la selectivite pH,
+# et sept designs du vivier sont PREDITS CONTRE-SELECTIFS dessus : leur liaison serait
+# defavorisee a pH 6,5 par rapport a pH 7,4, soit l'inverse de l'objectif.
+#
+# Les inclure ne se defendrait que comme diversite de poses, en contradiction avec la
+# consigne. Ils sont donc ecartes, et le nombre de squelettes couverts tombe de 13 a 6.
+# Le quota de 20 reste un plafond, jamais une cible.
+EXCLUDED_PH_TIERS = {"contre-selectif"}
 
 
 def rows(path: Path) -> list[dict]:
@@ -71,6 +86,12 @@ def select(candidates: list[dict]) -> tuple[list[dict], list[dict]]:
     """Un design par squelette, dans l'ordre du classement global déjà établi."""
     eligible, rejected = [], []
     for entry in candidates:
+        if entry.get("palier_pH") in EXCLUDED_PH_TIERS:
+            rejected.append({**entry, "motif":
+                             f"palier pH ecarte : {entry['palier_pH']} — la liaison est "
+                             f"predite DEFAVORISEE a pH 6,5, soit l'inverse du critere de "
+                             f"rang le plus eleve du challenge"})
+            continue
         if entry["type"] == "mutant":
             failures = [
                 f"{key}={entry.get(key)!r} attendu {want!r}"

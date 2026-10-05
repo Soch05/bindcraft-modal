@@ -220,6 +220,10 @@ def predict(jobs: list[dict], run_name: str) -> str:
             "--recycling_steps", str(RECYCLING_STEPS),
             "--output_format", "mmcif",
             "--override",
+            # Matrices PAE completes, necessaires au calcul d'ipSAE — metrique nommee
+            # explicitement par le reglement du challenge. Le cout est quelques Mo par
+            # complexe, ecrits dans le Volume.
+            "--write_full_pae",
             # SANS CE DRAPEAU, RIEN NE TOURNE. boltz 2.2.0 appelle inconditionnellement un
             # noyau cuEquivariance pour la mise à jour multiplicative triangulaire du
             # pairformer (`boltz/model/layers/triangular_mult.py`), et `pip install boltz`
@@ -261,16 +265,25 @@ def predict(jobs: list[dict], run_name: str) -> str:
                 "complex_ipde": payload.get("complex_ipde"),
             })
 
-        # Les structures partent dans le Volume pour l'analyse locale de contacts.
+        # Les structures ET LES MATRICES partent dans le Volume : tout ce qui n'est pas
+        # recopie ici est detruit avec le conteneur.
+        #
+        # ⚠️ ERREUR COMMISE LE 5 OCTOBRE : `--write_full_pae` a ete ajoute sans etendre
+        # cette boucle, qui ne prenait que les `.cif` et les `confidence_*.json`. Les
+        # matrices PAE ont donc ete calculees puis jetees, et le run a ete refait pour rien.
+        # D'ou le glob generique plutot qu'une liste de suffixes a maintenir.
         kept = destination / name
         kept.mkdir(parents=True, exist_ok=True)
-        for structure in out_dir.rglob("*.cif"):
-            shutil.copy(structure, kept / structure.name)
-        for confidence in predictions:
-            shutil.copy(confidence, kept / confidence.name)
+        wanted = ("*.cif", "*.pdb", "*.npz", "*.npy", "*.json")
+        saved = 0
+        for pattern in wanted:
+            for item in out_dir.rglob(pattern):
+                shutil.copy(item, kept / item.name)
+                saved += 1
         outputs_volume.commit()
 
         print(f"    {len(samples)} echantillons en {elapsed:.0f}s "
+              f"| {saved} fichiers conserves "
               f"| iptm {[s['iptm'] for s in samples]}", flush=True)
         results.append({"name": name, "ok": True, "secondes": round(elapsed, 1),
                         "echantillons": samples})

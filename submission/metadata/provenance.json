@@ -1,0 +1,87 @@
+{
+  "challenge": "Adaptyv x Anthropic Protein Design Competition, Challenge 1, Track 3",
+  "target": {
+    "human": "UniProt P00533, extracellular region, domain III",
+    "mouse": "UniProt Q01279, domain III, UniProt 333-530",
+    "structure": "PDB 6ARU chain A, folded conformation, 3.20 A",
+    "target_file": "inputs/6ARU_A_309-506.pdb, 198 residues, PDB numbering 309-506",
+    "domain_boundaries": "CATH-Gene3D G3DSA:3.80.20.20",
+    "human_mouse_identity_domain_III": "173/198 = 87.4 percent, no indels"
+  },
+  "generator": {
+    "egfr-dIII-prod01": {
+      "name": "BindCraft 2 v1.0.1",
+      "revision": "a8d0f2002df373842b86a3c20c5a060c5cfdf980-dirty",
+      "revision_caveat": "the -dirty suffix means the working tree in the container differed from the pinned commit, so that hash does not fully pin the code state",
+      "settings_digest": "d3196088f663",
+      "targets": [
+        {
+          "chains": "A",
+          "coldspots": "A359",
+          "hotspots": "A318,A323,A406,A409",
+          "name": "hEGFR_dIII",
+          "target_path": "/root/inputs/6ARU_A_309-506.pdb",
+          "weight": 1.0
+        }
+      ],
+      "binder_lengths": [
+        55,
+        95
+      ],
+      "max_trajectories": 30,
+      "kept_sequences": 1,
+      "number_of_final_designs": 12
+    },
+    "egfr-dIII-prod02": {
+      "name": "BindCraft 2 v1.0.1",
+      "revision": "a8d0f2002df373842b86a3c20c5a060c5cfdf980-dirty",
+      "revision_caveat": "the -dirty suffix means the working tree in the container differed from the pinned commit, so that hash does not fully pin the code state",
+      "settings_digest": "e21354acad97",
+      "targets": [
+        {
+          "chains": "A",
+          "coldspots": "A359",
+          "hotspots": "A318,A323,A406,A409",
+          "name": "hEGFR_dIII",
+          "target_path": "/root/inputs/6ARU_A_309-506.pdb",
+          "weight": 1.0
+        }
+      ],
+      "binder_lengths": [
+        55,
+        95
+      ],
+      "max_trajectories": 150,
+      "kept_sequences": 2,
+      "number_of_final_designs": 20
+    }
+  },
+  "folding_model": {
+    "name": "Boltz-2",
+    "version": "2.2.0",
+    "diffusion_samples": 3,
+    "recycling_steps": 3,
+    "target_msa": "ColabFold MMseqs2, mode env, precomputed once and baked into the image; 3725 sequences for the human target, 3502 for the mouse",
+    "binder_msa": "empty, single-sequence mode, because the binders are de novo and have no natural homologues",
+    "affinity_module": "not used; it is calibrated for small molecules rather than protein-protein interfaces",
+    "note": "requires --no_kernels, because boltz 2.2.0 calls a cuEquivariance kernel that pip install boltz does not provide, and otherwise exits with status 0 having produced nothing"
+  },
+  "pka_model": {
+    "name": "PROPKA",
+    "version": "3",
+    "states": "complex, target alone, binder alone, all extracted from the same file so the comparison isolates the partner"
+  },
+  "inverse_folding_model": {
+    "name": "ProteinMPNN",
+    "weights": "v_48_020",
+    "temperature": 0.1,
+    "samples_per_design": 8
+  },
+  "sequence_model": {
+    "name": "ESM-2",
+    "checkpoint": "esm2_t33_650M_UR50D",
+    "use": "descriptive only, excluded from every ordering"
+  },
+  "hardware": "NVIDIA L40S on Modal for the folding model; local CPU for pKa, geometry, threading and liabilities",
+  "reproducibility_caveat": "Replaying the same commit does not reproduce the same designs. JAX GPU reductions are not bit-deterministic and a gradient trajectory is chaotic. What is reproducible is the method, not the sequences."
+}
