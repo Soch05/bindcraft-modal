@@ -2,6 +2,7 @@ column,meaning,provenance,status,source_file_in_repository,source_column
 design_id,"unique identifier; encodes campaign, modality, binder length, backbone hash and ProteinMPNN sequence index",BindCraft 2.0,measured,out/master_rank.csv,design_id
 rank_submitted,"position in the submitted CSV, 1 is highest; empty when the design is not submitted",this pipeline,measured,,
 submitted,whether this design appears in the submitted CSV,this pipeline,measured,,
+submission_note,"the intent behind including this design, where it differs from the default of submitting a design expected to bind. Empty when the design is submitted on its predicted merits alone",this pipeline,measured,,
 backbone_id,BindCraft trajectory hash. Two designs sharing it share a backbone and are NOT independent poses,BindCraft 2.0,measured,out/master_rank.csv,squelette
 mpnn_index,ProteinMPNN sequence index on that backbone (seq0 or seq1). With kept_sequences=2 two sequences are kept per backbone; neither is derived from the other,BindCraft 2.0,measured,out/master_rank.csv,index_mpnn
 campaign,generation campaign,BindCraft 2.0,measured,out/master_rank.csv,run

@@ -15,3 +15,5 @@ data/*.json
 # data/LECTURE.md, qui est suivi, lui.
 data/*.xlsx
 data/*.pdf
+docs/~$*
+~$*

@@ -3580,3 +3580,44 @@ doit pas partir chez Adaptyv ; déplacée en `docs/egfr_analysis_working_copy.xl
 `submission/` ne contient plus que le livrable.
 
 Coût GPU cumulé : **~$4,2**.
+
+### 5 octobre — rang 6 requalifié en contrôle négatif, et deux vérifications pré-publication
+
+**Le rang 6 reste, pour un autre motif que ce matin.** `9526c9216eb7d6db_seq0` est le seul des
+six à porter une prédiction **directionnelle et falsifiable** : lier l'humain et pas la souris.
+Les cinq autres portent des espoirs. Trois mesures indépendantes le désignent comme le plus
+faible et **toutes pointent dans le même sens** — épitope murin 0,479, ipSAE cible→binder
+0,704, ΔpKa souris −2,62 — ce qui en fait un test et non un point faible, à condition que ce
+soit écrit. La phrase est désormais dans `metadata/design_metrics.csv` sous `submission_note`
+et dans `METHODS.md` §10.1 : *« Submitted as a negative control for the mouse cross-reactivity
+prediction: expected to bind human EGFR and not mouse. »*
+
+**Portée de la règle de coupe clarifiée dans le papier** : elle retire ce qui est prédit
+**faux** sur l'objectif 1, pas ce qui est prédit **faible** sur l'objectif 2. Le rang 6 est
+neutre, pas contre-sélectif, donc la règle ne l'atteint pas.
+
+**Vérification 2 — passée.** Les 6 séquences du CSV sont identiques aux **SEQRES de la chaîne
+B** des PDB livrés dans `submission/metadata/structures/01..06`, la numérotation des dossiers
+correspond au rang et au nom, et la cible chaîne A est identique dans les six (198 résidus, une
+seule variante). C'était le seul mode d'échec total de la soumission.
+
+**Vérification 1 — aucun secret**, sur 44 commits et 419 objets : ni `.env`, ni `*.key`, ni
+`*.pem`, ni `id_rsa`, ni `.modal.toml`, ni notebook, jamais commité. Le token Modal n'a jamais
+touché le dépôt.
+
+Mais elle a remonté deux choses non anticipées :
+
+1. **Un fichier de verrouillage Excel était suivi** : `docs/~$egfr_metrics_consolidated.xlsx`,
+   165 octets, créé par Excel à l'ouverture du classeur et happé par un `git add -A`. Il
+   contient le nom de la session qui avait le fichier ouvert. Retiré du suivi, et `~$*`
+   ajouté au `.gitignore`.
+
+2. ⚠️ **CONFLIT BLOQUANT POUR LA PUBLICATION.** Le paquet de métadonnées marque `withheld` la
+   séquence des candidats non soumis — mais **les 35 séquences sont dans le dépôt** :
+   `out/master_rank.csv` (suivi depuis le 5 octobre) et
+   `docs/egfr_metrics_consolidated.xlsx` les contiennent toutes, et
+   `submission/egfr_analysis.xlsx` les porte **dans l'historique** même après son déplacement.
+   Rendre le dépôt public publie donc les 17 séquences non soumises et les 12 mutants, ce qui
+   **transforme la mention `withheld` en affirmation fausse**. Sortir un fichier de l'arbre ne
+   l'enlève pas de l'historique, exactement comme annoncé. La bascule de visibilité est donc
+   suspendue en attente d'arbitrage.

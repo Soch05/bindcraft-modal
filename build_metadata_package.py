@@ -66,6 +66,21 @@ BOLTZ_MOUSE = Path("out/mouse01")
 
 WITHHELD = "withheld"
 
+# NOTES DE SOUMISSION, par design. Elles decrivent l'intention derriere l'inclusion d'un
+# design et n'adressent rien a personne.
+SUBMISSION_NOTES = {
+    "egfr-dIII-prod02_denovo_l57_9526c9216eb7d6db_seq0":
+        "Submitted as a negative control for the mouse cross-reactivity prediction: "
+        "expected to bind human EGFR and not mouse. This design recovers only 0.479 of its "
+        "human epitope when predicted against the mouse target, the lowest of the submitted "
+        "set, and it also carries the lowest ipSAE in the target-to-binder direction (0.704) "
+        "and a mouse pKa shift of -2.62. It is the only submitted design on which this "
+        "pipeline makes a directional, falsifiable prediction rather than a hope: if it binds "
+        "human and not mouse, the epitope analysis is validated experimentally; if it binds "
+        "mouse anyway, a contact recovery of 0.479 does not mean what it was taken to mean. "
+        "Both outcomes are informative.",
+}
+
 # Les colonnes enumerees viennent des CSV francais du depot. Elles sont traduites ICI, en un
 # seul endroit, pour que le paquet soit entierement en anglais sans dupliquer la logique.
 VALUE_MAP = {
@@ -106,6 +121,11 @@ FIELDS: list[tuple[str, str, str, str, str, str]] = [
      "this pipeline", "measured"),
     ("submitted", "", "",
      "whether this design appears in the submitted CSV",
+     "this pipeline", "measured"),
+    ("submission_note", "", "",
+     "the intent behind including this design, where it differs from the default of "
+     "submitting a design expected to bind. Empty when the design is submitted on its "
+     "predicted merits alone",
      "this pipeline", "measured"),
     ("backbone_id", "master", "squelette",
      "BindCraft trajectory hash. Two designs sharing it share a backbone and are NOT "
@@ -349,6 +369,9 @@ def main() -> None:
                 continue
             if key == "submitted":
                 row[key] = "yes" if rank else "no"
+                continue
+            if key == "submission_note":
+                row[key] = SUBMISSION_NOTES.get(design, "") if rank else ""
                 continue
             if key == "sequence":
                 row[key] = record["sequence"] if rank else WITHHELD

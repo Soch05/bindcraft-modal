@@ -487,6 +487,40 @@ pH 6.5. Submitting them would contradict the instruction to submit the designs e
 perform best, so they were withheld, at the cost of seven independent backbones. The quota of
 20 is a ceiling and was never treated as a target.
 
+**The scope of that cut.** It removes designs predicted **wrong** on objective 1, not designs
+predicted **weak** on objective 2. Rank 6 is neutral on the pH criterion rather than
+counter-selective, so the rule does not reach it; it is retained for the reason given in §10.1.
+
+### 10.1 Rank 6 is a negative control, not a sixth candidate
+
+`egfr-dIII-prod02_denovo_l57_9526c9216eb7d6db_seq0` is **submitted as a negative control for
+the mouse cross-reactivity prediction: expected to bind human EGFR and not mouse.**
+
+Three independent measurements converge on it as the weakest member of the submitted set, and
+all three point the same way:
+
+| measurement | value | rank within the submitted six |
+|---|---|---|
+| mouse epitope recovery | **0.479** | lowest |
+| ipSAE, target-to-binder direction | **0.704** | lowest |
+| pKa shift of H409 on the mouse complex | **−2.62** | lowest |
+
+It is the only submitted design on which this pipeline makes a **directional and falsifiable**
+prediction rather than expressing a hope. The other five are submitted because they are
+expected to bind; this one is submitted because of what either outcome would establish:
+
+- **If it binds human and not mouse**, the epitope analysis of §7 is validated
+  experimentally — a contact-recovery collapse from 0.9 to 0.48 on a predicted mouse complex
+  would have predicted a real loss of species cross-reactivity. For a methods contribution
+  that is worth more than a sixth binder that works.
+- **If it binds mouse anyway**, then a contact recovery of 0.479 does not mean what it was
+  taken to mean here, and the structural cross-reactivity measurement that this work
+  substituted for a sequence proxy needs recalibration.
+
+Retaining it costs one slot out of a ceiling of 20 and buys a test. It is labelled as a control
+in `metadata/design_metrics.csv` under `submission_note` so the intent travels with the design
+rather than living only in this document.
+
 ---
 
 ## 11. Known weaknesses
@@ -508,6 +542,22 @@ Stated so that a reader need not infer them.
   touch, and it accumulates one model error per group.
 - **Two thresholds set in this work turned out to be non-discriminating** — the confirmed-pose
   criterion of §5. They are reported, not removed.
+- **A constant was nearly shipped as a metric.** The ipSAE reference implementation also emits
+  `pDockQ`, `pDockQ2` and `ipTM_af`. On Boltz-2 input `pDockQ` returned **0.0183** and
+  `pDockQ2` **0.0073** — identical to four decimals across all six designs — and `ipTM_af`
+  returned **0.000**, because the tool reads interface pTM from an AlphaFold2 or AlphaFold3
+  JSON that a Boltz-2 run does not produce. The Boltz branch simply does not populate what
+  those scores need. The constancy was caught by reading the raw output table rather than
+  trusting the parsed numbers, and the three columns are excluded with the reason recorded in
+  `metadata/design_metrics.csv`. A fourth column, `n0res`, had initially been documented here
+  as a count of interface residues; it is in fact the d0 normalisation count and equals the
+  aligned chain length, 94 or 198 depending on direction. That description was wrong and has
+  been corrected.
+- **One GPU run produced data and discarded it.** `--write_full_pae` was enabled without
+  extending the copy step that moves outputs from the container to persistent storage, which
+  took only structure and confidence files. The PAE matrices were computed and destroyed with
+  the container, at a cost of roughly half a dollar. The copy step now takes every output
+  class and reports how many files it kept per complex, so the failure cannot recur silently.
 - **Rotamer ranking was blind for four mutants**, where the tightest contact is carried by CB,
   an atom that does not move between rotamers. Detected by measuring carboxylate centroid
   spread; one mutant has three near-identical rotamers.
