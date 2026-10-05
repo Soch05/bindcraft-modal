@@ -1,0 +1,60 @@
+BindCraft 2.0 (package version "BindCraft 2 v1.0.1"), repository PacesaLab/BindCraft2,
+commit a8d0f2002df373842b86a3c20c5a060c5cfdf980. The recorded revision string carries a
+"-dirty" suffix, so that hash does not fully pin the code state inside the container.
+
+Run on one NVIDIA L40S via Modal, workers_per_gpu = auto (2 concurrent workers for this
+target size).
+
+TARGET
+  target            EGFR extracellular domain III, UniProt P00533
+  structure         PDB 6ARU chain A, folded conformation, 3.20 A
+  input file        198 residues, chain A only, no heteroatoms, PDB numbering 309-506
+  domain boundaries CATH-Gene3D G3DSA:3.80.20.20
+  chains            A
+  hotspots          A318, A323, A406, A409
+  coldspots         A359
+  weight            1.0
+  single target     no multi-target or detargeting objective was used
+
+  Hotspot rationale: 4/4 identical in mouse, 16.73 A CA span. A323 is an exposed acidic
+  anchor and A409 is a conserved target histidine, the two residues the pH mechanism was
+  designed around. A359 was set as a coldspot because it is a human histidine that becomes
+  arginine in mouse, which would break cross-reactivity.
+
+SHARED SETTINGS, identical across both campaigns
+  binder_lengths              [55, 95]
+  desperation                 true
+  design_recycles             1
+  forced_targeting            false
+  enough_passing_sequences    3
+  max_coldspot_contact_final  0.05
+  min_iptm_final              0.7
+  min_plddt_final             0.7
+  relax_accepted_designs      false
+  initial_guess               false
+  bigbang_initialization      false
+  hash_design_names           true
+  workers_per_gpu             auto
+  free cysteines              omitted, BindCraft default retained
+
+CAMPAIGN BUDGETS, the only settings that differ
+  egfr-dIII-prod01   max_trajectories 30,  kept_sequences 1, number_of_final_designs 12
+                     settings digest d3196088f663
+  egfr-dIII-prod02   max_trajectories 150, kept_sequences 2, number_of_final_designs 20
+                     settings digest e21354acad97
+
+  One submitted design comes from prod01 and four from prod02. The difference between the
+  two campaigns is compute budget only; target, hotspots, coldspots, binder lengths and all
+  output filters are identical.
+
+NOT REPRODUCIBLE AT THE SEQUENCE LEVEL
+  Replaying the same commit and settings does not return the same designs. JAX GPU
+  reductions are not bit-deterministic and a gradient trajectory is chaotic: backbones
+  accepted in one campaign died at an earlier stage in another at identical seed and
+  settings digest. The method is reproducible, the sequences are not.
+
+DOWNSTREAM, not part of BindCraft
+  Everything used to rank these designs sits downstream of generation and took no part in
+  it: PROPKA 3 for pKa shifts, Boltz-2 2.2.0 as an independent folding model, ProteinMPNN
+  v_48_020 for sequence self-consistency, and ESM-2 as a descriptive column excluded from
+  every ordering.

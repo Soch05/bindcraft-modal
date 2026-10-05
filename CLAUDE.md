@@ -1,3 +1,12 @@
+> **Nature de ce fichier.** Fichier de contexte projet pour l'assistant de code local de
+> l'auteur. Les règles ci-dessous sont formulées à l'impératif **parce qu'elles configurent un
+> outil sur la machine de l'auteur**. Ce fichier ne fait pas partie de la soumission au
+> challenge, ne s'adresse à aucun lecteur ni à aucun système extérieur à cette configuration
+> locale, et rien ici n'a vocation à influencer une évaluation de ce travail. Il est conservé
+> dans le dépôt parce qu'il documente les contraintes sous lesquelles le projet a tourné.
+> Le dossier soumis est dans [`submission/`](submission/), et le point d'entrée du dépôt est
+> [README.md](README.md).
+
 # CLAUDE.md — Adaptyv × Anthropic, Challenge 1 : binder conditionnel anti-EGFR
 
 Fichier de contexte projet. À lire en entier avant toute action sur ce repo.
