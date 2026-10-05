@@ -3729,3 +3729,15 @@ Toutes les pièces sont régénérées et recoupées : `METHODS.md` (« Five »,
 renommée « Rank 5 »), `DESIGN_METRICS.md` (18 candidats écartés, motif de refus porté par les
 deux séquences du squelette), `METHODOLOGY_FIELD.txt`, le paquet de métadonnées et l'archive.
 Vérification croisée : le CSV et le paquet listent exactement les mêmes 5 designs.
+
+### 6 octobre — dépôt renommé
+
+`bindcraft-modal` → **`egfr-ph-conditional-binders`**. L'ancien nom datait de l'époque où le
+sujet était « faire tourner BindCraft sur Modal » ; il décrivait l'outillage et non le travail.
+Le nouveau décrit la science, et le dépôt survivra à la compétition.
+
+GitHub maintient une redirection 301 depuis l'ancienne URL — vérifié — donc un lien déjà collé
+dans le formulaire continue de fonctionner. `METHODOLOGY_FIELD.txt` et le remote local sont
+mis à jour vers la nouvelle URL, qui est celle à utiliser.
+
+Nouvelle URL : https://github.com/Soch05/egfr-ph-conditional-binders

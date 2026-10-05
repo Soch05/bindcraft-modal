@@ -72,4 +72,4 @@ charge, and ESM-2 pseudo log-likelihood. No design carries a free cysteine. ESM-
 and excluded from every ordering, since it measures resemblance to natural proteins while the
 competition requires novelty.
 
-Code, dated working journal and per-run outputs: https://github.com/Soch05/bindcraft-modal
+Code, dated working journal and per-run outputs: https://github.com/Soch05/egfr-ph-conditional-binders
