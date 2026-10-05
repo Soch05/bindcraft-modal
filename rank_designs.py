@@ -37,6 +37,8 @@ THREADED = Path("structures/threaded/threaded_index.csv")
 RESIDUES = Path("data/egfr_residues.csv")
 BOLTZ_CONTACTS = Path("out/boltz_contacts.csv")
 BIDENTATE = Path("out/bidentate.csv")
+BOLTZ_MUTANTS = Path("out/boltz_contacts_mutants.csv")
+ESM2 = Path("out/esm2_pll.csv")
 
 OUT_RANK = Path("out/master_rank.csv")
 OUT_PAIRS = Path("out/paires_wt_mutant.csv")
@@ -203,6 +205,9 @@ def build() -> tuple[list[dict], list[dict]]:
 
     orthogonal = {r["design"]: r for r in rows(BOLTZ_CONTACTS)}
     bidentate = {r["design"]: r for r in rows(BIDENTATE)}
+    # Les mutants sont indexés `<parent>__<mutation>`, comme les dossiers Boltz.
+    orthogonal_mutants = {r["design"]: r for r in rows(BOLTZ_MUTANTS)}
+    esm2 = {r["design_id"]: r for r in rows(ESM2)}
     mutant_rows = {r["design"]: r for r in rows(MUTANTS)}
 
     entries: list[dict] = []
@@ -386,7 +391,12 @@ def build() -> tuple[list[dict], list[dict]]:
             if bident.get("bidente_goulot_A") else "aucune paire possible"
         )
 
-        ortho = orthogonal.get(entry["design_id"]) if entry["type"] != "mutant" else None
+        if entry["type"] == "mutant":
+            ortho = orthogonal_mutants.get(
+                f"{entry['parent']}__{entry['mutations']}"
+            )
+        else:
+            ortho = orthogonal.get(entry["design_id"])
         if ortho:
             recovery = number(ortho.get("recuperation_contacts"))
             iptm = number(ortho.get("iptm_moyen"))
@@ -402,7 +412,10 @@ def build() -> tuple[list[dict], list[dict]]:
             entry["confiance_modele_orthogonal"] = "NON MESUREE"
             entry["orthogonal_detail"] = ""
             entry["pose"] = "non mesuree"
-        entry["ESM2_PLL"] = "non mesure"
+        # ESM-2 : DESCRIPTIF. N'entre dans aucun tri — voir le docstring du module.
+        key = (f"{entry['design_id']}__{entry['mutations']}"
+               if entry["type"] == "mutant" else entry["design_id"])
+        entry["ESM2_PLL"] = esm2.get(key, {}).get("ESM2_PLL_par_residu", "non mesure")
 
     # --- groupes et tri ----------------------------------------------------------------
     for entry in entries:
@@ -519,8 +532,14 @@ def build() -> tuple[list[dict], list[dict]]:
             "portee_H409": entry["pont_alerte"],
             "charge_parent": parent["charge_nette"],
             "charge_mutant": entry["charge_nette"],
-            "cout_structural": parent["recuperation_contacts"]
-            if parent["pose"] != "non mesuree" else "non mesure (paire incomplete)",
+            "recuperation_parent": parent["recuperation_contacts"],
+            "recuperation_mutant": entry["recuperation_contacts"],
+            "cout_structural": (
+                round(entry["recuperation_contacts"] - parent["recuperation_contacts"], 3)
+                if isinstance(entry["recuperation_contacts"], float)
+                and isinstance(parent["recuperation_contacts"], float)
+                else "non mesure (paire incomplete)"
+            ),
             "verdict": verdict,
         })
     return entries, pairs

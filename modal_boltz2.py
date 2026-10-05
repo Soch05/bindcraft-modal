@@ -335,3 +335,58 @@ def diagnose(design: str | None = None) -> None:
           f"binder {len(jobs[0]['binder'])} residus")
     results = json.loads(predict.remote(jobs, "diagnose"))
     print(json.dumps(results, indent=2)[:4000])
+
+
+def load_mutant_jobs() -> list[dict]:
+    """Les 12 séquences mutées, depuis out/mutants_acide.csv.
+
+    Ces séquences n'ont JAMAIS été repliées : `mutants_acide.csv` ne contient que des
+    chaînes de caractères, et les structures threadées sont des greffes de chaîne latérale
+    sur le squelette du parent, pas des prédictions. Les faire prédire par Boltz-2 est donc
+    la première fois qu'un modèle de structure voit ces séquences, et c'est ce qui rend
+    calculable le COÛT STRUCTURAL de la phase 5c : la pose du mutant retrouve-t-elle les
+    contacts de son parent, ou la mutation casse-t-elle l'interface ?
+    """
+    import csv
+
+    import gemmi
+
+    structure = gemmi.read_structure("inputs/6ARU_A_309-506.pdb")
+    structure.setup_entities()
+    target = gemmi.one_letter_code([r.name for r in structure[0]["A"]]).upper()
+
+    jobs = []
+    with open("out/mutants_acide.csv", newline="") as handle:
+        for row in csv.DictReader(handle):
+            sequence = row.get("Binder_Sequence_mutee", "").strip().upper()
+            if not sequence:
+                continue
+            jobs.append({
+                "name": f"{row['design']}__{row['mutation']}",
+                "target": target,
+                "binder": sequence,
+            })
+    return jobs
+
+
+@app.local_entrypoint()
+def rescore_mutants(run_name: str = "rescore_mut01") -> None:
+    """Phase 5c : le coût structural des 12 mutations.
+
+    Decision de la premiere nuit : le GPU etait alle aux 23 natifs seulement, les mutants
+    ayant deja ete disqualifies par PROPKA, et les paires restaient incompletes. L'echeance
+    ayant ete repoussee de 24 h, la depense se justifie et les paires peuvent etre fermees.
+    """
+    jobs = load_mutant_jobs()
+    if not jobs:
+        raise SystemExit("aucun mutant a traiter")
+    print(f"{len(jobs)} mutants, {DIFFUSION_SAMPLES} echantillons chacun")
+    print(f"GPU {GPU} | budget ${BUDGET_USD:.2f} -> timeout {TIMEOUT}s "
+          f"({TIMEOUT / 3600:.2f} h)")
+    for job in jobs:
+        print(f"  {job['name'][-40:]:<42} {len(job['binder'])} aa")
+    results = json.loads(predict.remote(jobs, run_name))
+    ok = [r for r in results if r.get("ok")]
+    print()
+    print(f"-> {len(ok)}/{len(results)} mutants predits")
+    Path(f"out/boltz_{run_name}.json").write_text(json.dumps(results, indent=2))

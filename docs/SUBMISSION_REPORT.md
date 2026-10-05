@@ -694,13 +694,49 @@ l'épitope visé porte lui-même `D323`. Ajouter du carboxylate sur une surface 
 à une cible acide, crée de la **répulsion aux deux pH** — ce qui est cohérent avec le fait que
 7 des 12 mutations dégradent.
 
-### c) Coût structural
+### c) Coût structural — MESURÉ [après report]
 
-**Non mesuré pour les mutants**, et c'est une décision assumée : le re-scoring orthogonal a
-été dépensé sur les 23 designs natifs plutôt que sur les mutants, parce que la phase 3 les
-avait déjà disqualifiés (aucun ΔpKa positif robuste, `S15D` ROUGE, `S28D` impossible) et
-qu'aucun ne pouvait entrer dans la soumission. Les paires sont donc **incomplètes par
-construction** du côté structural, et la colonne porte « non mesuré », jamais une estimation.
+Sous l'échéance du 5 octobre, cette colonne portait « non mesuré » : le GPU avait été dépensé
+sur les 23 designs natifs seulement, les mutants ayant déjà été disqualifiés par PROPKA. Le
+report de 24 h a rendu la dépense justifiable, et **les 12 paires sont désormais complètes.**
+
+Les 12 séquences mutées ont été prédites par Boltz-2 — c'est la **première fois qu'un modèle
+de structure voit ces séquences**, les structures threadées n'étant que des greffes de chaîne
+latérale sur le squelette du parent. La référence de comparaison est nécessairement la pose
+AF2 du **parent**, puisqu'un mutant n'a pas de pose AF2. La vérification de séquence tolère
+donc exactement **une** différence, pas plus.
+
+| squelette | mutation | récup. parent | récup. mutant | **coût** | verdict pH |
+|---|---|---|---|---|---|
+| `l62_a6d2f6834f22e574_seq1` | S44D | 0.921 | 0.842 | **-0.079** | ameliore |
+| `l61_a6334a3a912c86f1_seq0` | S15D | 0.909 | 0.833 | **-0.076** | degrade |
+| `l55_f6d5f550a210fd48_seq0` | S38D | 0.811 | 0.736 | **-0.075** | neutre |
+| `l61_a6334a3a912c86f1_seq1` | S15D | 0.851 | 0.791 | **-0.06** | degrade |
+| `l64_4a818d7951649b77_seq1` | F38D | 0.892 | 0.846 | **-0.046** | degrade |
+| `l61_cd272a8fd929c7ee_seq0` | N21E | 0.96 | 0.92 | **-0.04** | degrade |
+| `l73_5b295c4d9e1ff73f_seq1` | H23E | 0.891 | 0.87 | **-0.021** | neutre |
+| `l64_4a818d7951649b77_seq0` | P39D | 0.905 | 0.905 | **0.0** | neutre |
+| `l62_a6d2f6834f22e574_seq0` | S44D | 0.899 | 0.913 | **0.014** | degrade |
+| `l64_1e7ab6d8f00c9958_seq0` | S28D | 0.864 | 0.881 | **0.017** | degrade |
+| `l61_cd272a8fd929c7ee_seq1` | N21E | 0.92 | 0.94 | **0.02** | degrade |
+| `l73_5b295c4d9e1ff73f_seq0` | H23E | 0.87 | 0.913 | **0.043** | neutre |
+
+**Aucune des 12 mutations ne casse l'interface.** Le coût maximal est de **0,079** de
+récupération de contacts, et trois mutations en gagnent. Pour mémoire, les designs natifs
+eux-mêmes couvrent la plage 0,696 à 0,969 : le coût des mutations est donc **du même ordre que
+la dispersion naturelle entre designs**, c'est-à-dire négligeable.
+
+**C'est le résultat qui qualifie l'échec de la campagne de mutants.** Les substitutions sont
+structurellement tolérées — elles ne délivrent simplement pas le mécanisme pH. **L'échec est
+chimique et électrostatique, pas structural.** Un carboxylate hors de portée (4 cas), un
+carboxylate dont le pKa propre monte trop haut pour rester chargé à pH 6,5 (5 cas ROUGE) : ni
+l'un ni l'autre ne se voit dans la géométrie de l'interface.
+
+Détail qui tranche le seul arbitrage ouvert du lot : `S44D` sur `a6d2f6834f22e574_seq1`, la
+seule mutation au verdict « améliore », porte **le coût structural le plus élevé des douze**
+(−0,079). Son gain de pH est sous le plancher de bruit et son coût de pose est le pire du
+groupe. Le choix du design natif pour ce squelette (rang 9) s'en trouve conforté plutôt que
+simplement conservateur.
 
 ### Ce que la campagne de mutants apprend
 
@@ -753,12 +789,14 @@ Quatre groupes, selon la consigne :
 |---|---|---|
 | 1 | mécanisme pH robuste **et** pose confirmée | **2** |
 | 2 | mécanisme pH robuste, pose contestée ou non mesurée | **0** |
-| 3 | pas de mécanisme pH, pose confirmée | **21** |
-| 4 | le reste — ici les 12 mutants, non re-scorés | **12** |
+| 3 | pas de mécanisme pH, pose confirmée | **26** |
+| 4 | le reste | **7** |
 
-Le groupe 2 est vide parce que les deux designs à mécanisme ont **aussi** une pose confirmée.
-Le groupe 4 ne contient que les mutants, dont la pose n'a pas été mesurée (décision de la
-phase 4).
+[après report] Les mutants ayant été re-scorés à leur tour, le groupe 4 ne contient plus que
+les **7 mutants rétrogradés par la règle** — carboxylate ROUGE (5) ou impossibilité
+structurale (2). Les 5 autres mutants rejoignent le groupe 3 : leur pose est confirmée, leur
+mécanisme pH absent. Le groupe 2 est vide parce que les deux designs à mécanisme ont **aussi**
+une pose confirmée.
 
 **Mais cette structure est moins informative qu'elle en a l'air.** Les 23 designs natifs
 passent le seuil de pose confirmée, et largement. La répartition 2 / 21 reflète donc
@@ -902,11 +940,17 @@ classement — elle est rapportée comme résultat de méthode, pas utilisée co
   héritent.
 - **La corréférence de face des hotspots.** Les 16,73 Å d'étendue CA disent que les quatre
   hotspots sont proches, pas qu'ils regardent du même côté.
-- **La pseudo-vraisemblance ESM-2.** Non calculée, et hors classement **par construction** :
-  elle mesure la ressemblance aux protéines naturelles, alors que le règlement exige la
-  nouveauté. Classer dessus favoriserait les designs les moins nouveaux. Le temps de calcul
-  est allé au re-scoring orthogonal, qui entre, lui, dans le classement. La mention d'un usage
-  par Adaptyv au round 2 n'a **pas** été vérifiée et n'a servi à rien ici.
+- **La pseudo-vraisemblance ESM-2 est désormais mesurée [après report], et elle ne sert à
+  rien** — ce qui était prévisible et se dit quand même. `esm2_t33_650M_UR50D`, marginales
+  masquées, normalisée par la longueur : **−2,72 à −1,93 par résidu, médiane −2,21** sur les
+  35 séquences. Elle reste **hors classement par construction**, puisqu'elle mesure la
+  ressemblance aux protéines naturelles alors que le règlement exige la nouveauté ; classer
+  dessus favoriserait les designs les moins nouveaux. Lue comme **détecteur d'anomalie**, son
+  seul usage légitime, elle ne remonte rien : la plage ne couvre que 0,8 unité log et aucune
+  séquence ne se détache. Les quatre valeurs les plus basses appartiennent toutes au squelette
+  `a6d2f6834f22e574` (natifs et mutants), qui est par ailleurs le plus contre-sélectif du lot —
+  coïncidence notée, **pas exploitée**. La mention d'un usage par Adaptyv au round 2 n'a **pas**
+  été vérifiée.
 - **Le coût structural des mutations.** Le GPU est allé aux 23 designs natifs, pas aux
   mutants, ceux-ci ayant déjà été disqualifiés par PROPKA. Les paires sont donc incomplètes
   du côté structural, par décision assumée, et la colonne porte « non mesuré ».

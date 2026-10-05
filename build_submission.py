@@ -389,11 +389,13 @@ def workbook(chosen: list[dict], candidates: list[dict], control_rows: list[dict
          "souris > affinite. Aucun score composite pondere. Critere pH DISCRETISE en trois "
          "paliers, parce que PROPKA se trompe d'environ une unite de pKa et qu'un ordre fin "
          "sur des ecarts de 0,4 unite serait du bruit"},
-        {"rubrique": "ESM-2", "detail": "NON MESURE, et hors classement par construction. "
-         "La pseudo-vraisemblance ESM-2 mesure la ressemblance aux proteines naturelles ; "
-         "nos binders sont de novo et le reglement exige qu'ils ne ressemblent pas au "
-         "naturel. Classer dessus favoriserait les designs les moins nouveaux. Le temps "
-         "de calcul est alle au re-scoring orthogonal, qui entre, lui, dans le classement"},
+        {"rubrique": "ESM-2 — MESURE, hors classement", "detail": "esm2_t33_650M_UR50D, "
+         "pseudo-vraisemblance par marginales masquees, normalisee par la longueur. "
+         "PLL/residu de -2,72 a -1,93, mediane -2,21 sur 35 sequences. HORS CLASSEMENT PAR "
+         "CONSTRUCTION : la metrique mesure la ressemblance aux proteines naturelles, alors "
+         "que le reglement exige la nouveaute ; classer dessus favoriserait les designs les "
+         "moins nouveaux. Lue comme detecteur d'anomalie, elle ne remonte RIEN : la plage "
+         "est etroite (0,8 unite log) et aucune sequence ne sort du lot"},
         {"rubrique": "Pose orthogonale — MESUREE", "detail": "23/23 designs natifs. "
          "Recuperation de contacts 0,70 a 0,97 ; iptm Boltz 0,85 a 0,96. ATTENTION : le "
          "seuil de 'pose confirmee' (recup >= 0,50 et iptm >= 0,60) ne discrimine RIEN sur "
@@ -409,9 +411,11 @@ def workbook(chosen: list[dict], candidates: list[dict], control_rows: list[dict
          "designs capables de former la paire, ou un partage propre a ~10 % de chance sous "
          "l'hypothese nulle. Suggestive, non etablie, et N'ENTRE DANS AUCUN CRITERE de "
          "classement"},
-        {"rubrique": "NON MESURE — cout structural des mutants", "detail": "le GPU a ete "
-         "depense sur les 23 designs natifs, les mutants ayant deja ete disqualifies par "
-         "PROPKA. Les paires sont incompletes cote structure, par decision assumee"},
+        {"rubrique": "Cout structural des mutants — MESURE", "detail": "les 12 mutants "
+         "ont ete predits par Boltz-2 apres le report d'echeance de 24 h. Reference : les "
+         "contacts de la pose AF2 du PARENT, un mutant n'ayant pas de pose AF2. RESULTAT : "
+         "aucune des 12 mutations ne casse l'interface, cout maximal 0,08 de recuperation "
+         "de contacts. L'echec des mutants est donc CHIMIQUE, pas structural"},
         {"rubrique": "NON MESURE — cross-reactivite souris reelle", "detail": "aucune "
          "structure du domaine III murin n'a ete obtenue. L'objectif n°2 est approche par "
          "un proxy : fraction des residus de cible contactes qui sont identiques chez la "

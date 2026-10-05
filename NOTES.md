@@ -3338,3 +3338,56 @@ les écarts y sont sous le bruit de PROPKA.
 7. **Design natif retenu pour `a6d2f6834f22e574`** plutôt que son mutant `S44D seq1`, seul
    membre non contre-sélectif du squelette mais gain sous le bruit et structure non relaxée.
    Choix conservateur, réversible en une ligne.
+
+### Report d'échéance de 24 h — reprise sans compression
+
+Information reçue le 5 octobre vers 06:00 : la clôture est **mardi 6 octobre 13:59 Paris**.
+Les points de bascule de la consigne (02:30, 04:00, gel à 09:00) deviennent sans objet. Deux
+items que le calendrier avait fait couper sont exécutés.
+
+**Vectorisation de la récupération de contacts, d'abord.** La version naïve comparait chaque
+paire de résidus puis chaque paire d'atomes : 3 h 30 de CPU pour 69 structures. Remplacée par
+un arbre k-d `scipy.spatial.cKDTree` sur les atomes lourds, interrogé par rayon. **Les 23
+lignes de sortie sont identiques au chiffre près** — vérifié avant de remplacer, parce qu'une
+optimisation qui change les résultats en silence est une régression déguisée. Durée : quelques
+secondes.
+
+**Phase 5c — coût structural des mutants, 12 complexes Boltz-2, ~$0,44.** `rescore_mutants`
+dans `modal_boltz2.py`. Première fois qu'un modèle de structure voit ces séquences : les
+structures threadées ne sont que des greffes de chaîne latérale. Référence = contacts de la
+pose AF2 du **parent**, avec tolérance d'exactement une différence de séquence dans
+`offsets()`.
+
+Résultat : **aucune des 12 mutations ne casse l'interface.** Coût maximal **0,079** de
+récupération, trois mutations en gagnent. À comparer à la dispersion entre designs natifs
+(0,696–0,969) : le coût est du même ordre, donc négligeable. **L'échec des mutants est chimique
+et électrostatique, pas structural** — un carboxylate hors de portée ou dont le pKa monte trop
+haut ne se voit pas dans la géométrie de l'interface.
+
+`S44D` sur `a6d2f6834f22e574_seq1`, seule mutation « améliore », porte **le pire coût
+structural des douze** (−0,079) pour un gain de pH sous le bruit. Le choix du natif pour ce
+squelette est conforté.
+
+**Phase 4 niveau D — ESM-2, ~$0,16.** `modal_esm2.py`, `esm2_t33_650M_UR50D`, marginales
+masquées, normalisé par la longueur. **−2,72 à −1,93 par résidu, médiane −2,21** sur 35
+séquences. Reste **hors classement par construction**. Comme détecteur d'anomalie — son seul
+usage légitime — il ne remonte rien : 0,8 unité log de plage, aucune séquence détachée. Les 4
+valeurs les plus basses sont toutes du squelette `a6d2f6834f22e574`, le plus contre-sélectif
+du lot ; coïncidence notée, non exploitée.
+
+**Effet sur le classement : aucun.** Groupes désormais 2 / 0 / 26 / 7 — les 5 mutants à
+verdict non-ROUGE rejoignent le groupe 3, les 7 autres restent rétrogradés. La soumission est
+**identique** : 13 designs, même ordre. Les nouvelles données confirment le classement au lieu
+de le renverser.
+
+Coût GPU cumulé des deux nuits : **~$1,79**.
+
+### Lacune restante, chiffrée
+
+L'objectif n°2 (cross-réactivité souris) reste un **proxy de séquence** : fraction des résidus
+de cible contactés identiques chez la souris. Aucune structure du domaine III de **Q01279**
+n'a été obtenue. C'est l'action 5 de CLAUDE.md, toujours non faite, et c'est maintenant le
+poste à plus forte valeur : Boltz-2 fonctionne, `H409` est `identical` chez la souris, donc
+prédire binder + domaine III murin donnerait une cross-réactivité **mesurée** et permettrait de
+rejouer PROPKA sur le complexe murin pour voir si le mécanisme pH survit au changement
+d'espèce. Coût estimé : une MSA (~1 min) et 23 complexes (~$0,85).
