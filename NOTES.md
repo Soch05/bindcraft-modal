@@ -3447,3 +3447,24 @@ l'hypothèse nulle (3 contre 3 sur 6 designs à paire possible). **Soutenue, non
 **Soumission remise à jour** : toujours 13 designs sur 13 squelettes, mais **l'ordre a changé**
 et l'identité maximale descend à **23,4 %**. Les 8 contrôles passent. Coût GPU cumulé des deux
 jours : **~$2,64**.
+
+### Correctif — les CSV de mesure n'étaient pas suivis
+
+Le plan demandait de commiter `master_rank.csv`. Il ne l'était pas : `out/` est gitignoré, et
+`git add -A` l'a donc silencieusement ignoré. Les 16 CSV de mesure sont ajoutés en `git add -f`
+(1,4 Mo, dont 1,3 pour `propka_all_groups.csv`).
+
+**Motif de l'exception au gitignore** : ces fichiers ne sont pas régénérables au sens où
+`out/` est censé l'être. Ils dépendent de `out/egfr-dIII-prod0*/3_Ranked/`, qui est gitignoré
+et dont les designs **ne sont pas reproductibles** — rejouer le même commit ne redonne pas les
+mêmes séquences. Ils sont donc la seule trace d'audit des mesures du dossier.
+
+**⚠️ Lacune qui RESTE** : `out/` pèse 186 Mo et contient les sorties de campagne
+(`!_Ranked.csv` et ses 42 colonnes, les structures acceptées, les logs). Ce n'est pas dans le
+dépôt, et ce n'est **pas reconstructible**. Si ce répertoire est perdu, le dossier ne peut plus
+être refait — seules les séquences survivent, dans `submission/` et `out/master_rank.csv`. À
+arbitrer : sauvegarde hors dépôt, ou ajout ciblé des `!_Ranked.csv` (quelques dizaines de Ko).
+
+**Note d'environnement** : le push a échoué deux fois en `HTTP 400 / RPC failed` avant qu'un
+`git config http.postBuffer 524288000` ne le fasse passer. Le dépôt est **privé**
+(`gh repo view` → `isPrivate: true`), donc le push ne publie rien.
