@@ -80,8 +80,28 @@ deux runs.
 | run | designs | squelettes | structure |
 |---|---|---|---|
 | `egfr-dIII-prod01` | 3 | 3 | 1 design par squelette |
-| `egfr-dIII-prod02` | 20 | 10 | 2 frères par squelette (`kept_sequences=2`) |
+| `egfr-dIII-prod02` | 20 | 10 | **2 séquences par squelette** (`kept_sequences=2`) |
 | **total** | **23** | **13** | — |
+
+**Ce que « deux séquences par squelette » veut dire, et ce que ça ne veut pas dire.** Une
+trajectoire BindCraft produit un **squelette**, identifié par un hash. ProteinMPNN propose
+ensuite des séquences pour ce squelette, et `kept_sequences=2` en conserve deux : `seq0` et
+`seq1`. **Les deux sont des sorties de campagne non modifiées** — chacune a son propre rang
+BindCraft, ses propres métriques AF2 et sa propre structure prédite. Aucune n'est dérivée de
+l'autre, et `seq0` n'est pas « l'originale » : l'index ne porte aucune hiérarchie. Le lot
+soumis retient d'ailleurs plusieurs `seq1` **au-dessus** du `seq0` du même squelette.
+
+Ce qui les relie est le **squelette partagé** : deux séquences de même hash ne sont donc
+**pas des poses indépendantes**, et c'est la raison pour laquelle l'allocation retenue n'en
+soumet qu'une par squelette.
+
+**Le seul type réellement modifié est `mutant`** : une substitution ponctuelle greffée sur le
+squelette d'un design BindCraft, jamais passée par les filtres de la campagne. La colonne
+`type` de `master_rank.csv` ne distingue donc que `bindcraft` et `mutant`, et l'index
+ProteinMPNN vit dans sa propre colonne `index_mpnn`.
+
+⚠️ **Correction du 5 octobre** : cette colonne valait auparavant `natif` pour `seq0` et
+`frere` pour `seq1`, ce qui suggérait une filiation inexistante. Renommée.
 
 Les hash de squelette de `prod01` (`f6d5f550a210fd48`, `1e7ab6d8f00c9958`,
 `692deac2f1034bb6`) n'apparaissent dans aucune ligne de `prod02`. Les 3 designs de `prod01`
@@ -156,7 +176,7 @@ court. Le seuil implicite était donc ~4,3 Å, et il n'avait pas été posé.
 
 | | |
 |---|---|
-| designs natifs et frères | 23 |
+| designs BindCraft | 23 |
 | mutants threadés | 12 |
 | **total au classement** | **35** |
 | quota Track 3 | 20 (plafond) |
@@ -465,7 +485,7 @@ design à ΔpKa −0,01 au-dessus d'un autre à −0,40 serait lire un ordre dan
 
 ## Phase 4 — Re-scoring orthogonal
 
-### Niveau atteint : **A — Boltz-2 sur Modal**, 23/23 designs natifs, puis 12 mutants [après report]
+### Niveau atteint : **A — Boltz-2 sur Modal**, 23/23 designs BindCraft, puis 12 mutants [après report]
 
 Les niveaux B, C et D n'ont pas eu à servir. Le basculement de 02:30 n'a pas été déclenché :
 le niveau A a produit son premier résultat à 01:49, soit 41 minutes avant la limite.
@@ -591,7 +611,7 @@ un substitut.
 
 L'ordre par paire prévu au plan n'a pas été appliqué, parce que la décision avait été prise de
 **ne pas re-scorer les mutants** : la phase 3 les avait déjà tous disqualifiés. Les 23 designs
-natifs ont donc été traités en une série. Conséquence assumée et rapportée : **les 12 paires
+BindCraft ont donc été traités en une série. Conséquence assumée et rapportée : **les 12 paires
 WT–mutant sont incomplètes du côté structural**, et la colonne de coût structural de la phase 5
 porte « non mesuré », jamais une estimation.
 
@@ -728,7 +748,7 @@ l'épitope visé porte lui-même `D323`. Ajouter du carboxylate sur une surface 
 ### c) Coût structural — MESURÉ [après report]
 
 Sous l'échéance du 5 octobre, cette colonne portait « non mesuré » : le GPU avait été dépensé
-sur les 23 designs natifs seulement, les mutants ayant déjà été disqualifiés par PROPKA. Le
+sur les 23 designs BindCraft seulement, les mutants ayant déjà été disqualifiés par PROPKA. Le
 report de 24 h a rendu la dépense justifiable, et **les 12 paires sont désormais complètes.**
 
 Les 12 séquences mutées ont été prédites par Boltz-2 — c'est la **première fois qu'un modèle
@@ -753,7 +773,7 @@ donc exactement **une** différence, pas plus.
 | `l73_5b295c4d9e1ff73f_seq0` | H23E | 0.87 | 0.913 | **0.043** | neutre |
 
 **Aucune des 12 mutations ne casse l'interface.** Le coût maximal est de **0,079** de
-récupération de contacts, et trois mutations en gagnent. Pour mémoire, les designs natifs
+récupération de contacts, et trois mutations en gagnent. Pour mémoire, les designs BindCraft
 eux-mêmes couvrent la plage 0,696 à 0,969 : le coût des mutations est donc **du même ordre que
 la dispersion naturelle entre designs**, c'est-à-dire négligeable.
 
@@ -766,7 +786,7 @@ l'un ni l'autre ne se voit dans la géométrie de l'interface.
 Détail qui tranche le seul arbitrage ouvert du lot : `S44D` sur `a6d2f6834f22e574_seq1`, la
 seule mutation au verdict « améliore », porte **le coût structural le plus élevé des douze**
 (−0,079). Son gain de pH est sous le plancher de bruit et son coût de pose est le pire du
-groupe. Le choix du design natif pour ce squelette (rang 9) s'en trouve conforté plutôt que
+groupe. Le choix du design BindCraft pour ce squelette (rang 9) s'en trouve conforté plutôt que
 simplement conservateur.
 
 ### Ce que la campagne de mutants apprend
@@ -785,7 +805,7 @@ nécessaires et qu'aucune n'avait été vérifiée avant de générer les séque
 
 ### a) `out/master_rank.csv`
 
-**35 lignes** : les 23 designs natifs et frères, plus les 12 mutants threadés. Aucun candidat
+**35 lignes** : les 23 designs BindCraft, plus les 12 mutants threadés. Aucun candidat
 n'est écarté du fichier — les rejetés font partie du funnel publié, et l'onglet « Écartés et
 motifs » du classeur dit pour chacun pourquoi il n'est pas dans la soumission.
 
@@ -835,7 +855,7 @@ n'est *robuste* que s'il est positif sur les trois mesures (AF2 humain, Boltz hu
 souris). Le palier **« mécanisme non reproductible »** recueille les designs positifs sur au
 moins une mesure mais pas toutes, et se classe au-dessus du neutre.
 
-**Mais cette structure est moins informative qu'elle en a l'air.** Les 23 designs natifs
+**Mais cette structure est moins informative qu'elle en a l'air.** Les 23 designs BindCraft
 passent le seuil de pose confirmée, et largement. La répartition 2 / 21 reflète donc
 uniquement l'axe pH : sur l'axe pose, le critère ne sépare personne. Voir phase 4.
 
@@ -881,7 +901,7 @@ conditions.** Le plus proche, `S44D` sur `a6d2f6834f22e574_seq1`, a bien un carb
 et un gain apparié net (+3,08 unités), mais son ΔpKa absolu de +0,23 est sous le plancher de
 bruit, donc son mécanisme est classé « absent ».
 
-Conséquence : pour le squelette `a6d2f6834f22e574`, c'est le design natif `seq0` qui est
+Conséquence : pour le squelette `a6d2f6834f22e574`, c'est le design BindCraft `seq0` qui est
 soumis (rang 9), alors que le mutant `S44D seq1` est le seul membre du squelette qui ne soit
 pas contre-sélectif. **C'est le seul arbitrage du lot où un autre choix serait défendable**,
 et il est signalé comme tel : échanger le rang 9 contre la séquence de `S44D seq1` troquerait
@@ -1063,7 +1083,7 @@ sur **les trois mesures** : AF2 humain, Boltz humain, Boltz souris. Un palier in
 pas sur toutes. Il se classe au-dessus du neutre — un design positif sur une structure reste un
 meilleur pari pH qu'un design positif sur aucune — mais la mention voyage avec lui.
 
-| palier | effectif (designs natifs) |
+| palier | effectif (designs BindCraft) |
 |---|---|
 | mécanisme **robuste** | **1** |
 | mécanisme **non reproductible** | 3 |
@@ -1127,7 +1147,7 @@ P00533 / Q01279).
 | règle bidentée | goulot ≤ ~3,4 Å (AF2) / ~4,0 Å (Boltz) | **dérivée a posteriori**, puis testée sur un second jeu de structures : passe avec 2,20 Å de marge, échoue si la géométrie est transportée d'un prédicteur à l'autre. Soutenue, non établie |
 | mécanisme pH **robuste** | ΔpKa > 0,5 sur **les trois** mesures | durcissement introduit après la mesure inter-espèces, parce que le critère sur une seule structure promouvait un design qui ne se reproduit pas |
 
-Le seuil de pose confirmée s'est révélé **non discriminant** : les 23 designs natifs le
+Le seuil de pose confirmée s'est révélé **non discriminant** : les 23 designs BindCraft le
 passent. Il ne porte donc aucune information de classement, ce qui est dit en phase 4 plutôt
 que masqué par une répartition en groupes d'apparence informative.
 
@@ -1157,10 +1177,10 @@ classement — elle est rapportée comme résultat de méthode, pas utilisée co
   dessus favoriserait les designs les moins nouveaux. Lue comme **détecteur d'anomalie**, son
   seul usage légitime, elle ne remonte rien : la plage ne couvre que 0,8 unité log et aucune
   séquence ne se détache. Les quatre valeurs les plus basses appartiennent toutes au squelette
-  `a6d2f6834f22e574` (natifs et mutants), qui est par ailleurs le plus contre-sélectif du lot —
+  `a6d2f6834f22e574` (designs BindCraft et mutants), qui est par ailleurs le plus contre-sélectif du lot —
   coïncidence notée, **pas exploitée**. La mention d'un usage par Adaptyv au round 2 n'a **pas**
   été vérifiée.
-- **Le coût structural des mutations.** Le GPU est allé aux 23 designs natifs, pas aux
+- **Le coût structural des mutations.** Le GPU est allé aux 23 designs BindCraft, pas aux
   mutants, ceux-ci ayant déjà été disqualifiés par PROPKA. Les paires sont donc incomplètes
   du côté structural, par décision assumée, et la colonne porte « non mesuré ».
 - **Rien d'expérimental.** Tout ce dossier repose sur des structures prédites et des modèles
@@ -1231,12 +1251,12 @@ L'auteur dormait. Ces choix n'ont pas été arbitrés par un humain.
 | # | décision | raison |
 |---|---|---|
 | 1 | **Allocation « couverture maximale »**, 13 designs, un par squelette | Le règlement ne dit pas comment l'unicité est évaluée entre designs d'un même participant (phase 0f). La consigne était de n'ajouter frères ou mutants qu'en cas de confirmation explicite. Elle n'existe pas. |
-| 2 | **GPU dépensé sur les 23 designs natifs, pas sur les mutants** | La phase 3 avait déjà disqualifié les 12 mutants. Dépenser du GPU sur eux aurait acheté une colonne pour des candidats inéligibles. Conséquence acceptée : phase 5c non mesurée. |
+| 2 | **GPU dépensé sur les 23 designs BindCraft, pas sur les mutants** | La phase 3 avait déjà disqualifié les 12 mutants. Dépenser du GPU sur eux aurait acheté une colonne pour des candidats inéligibles. Conséquence acceptée : phase 5c non mesurée. |
 | 3 | **Règle d'éligibilité des mutants** (mécanisme robuste **et** carboxylate VERT) | Un mutant sans mécanisme ne gagne rien sur l'objectif n°1 et perd le filtrage BindCraft et la validation orthogonale de son parent. Aucun des 12 ne passe. |
 | 4 | **Critère pH discrétisé en trois paliers** | Classer sur des écarts de ΔpKa inférieurs à l'erreur de PROPKA serait lire un ordre dans du bruit. |
 | 5 | **Trois échantillons de diffusion au lieu de trois graines** | Le tronc de Boltz-2 est déterministe à graine fixée ; le relancer trois fois coûterait trois fois le calcul pour un tronc identique. Ce qui varie entre poses est l'étape de diffusion. |
 | 6 | **ESM-2 non calculé** | Hors classement par construction. Le temps est allé au re-scoring orthogonal, qui entre dans le classement. |
-| 7 | **Design natif retenu pour `a6d2f6834f22e574`** plutôt que son mutant `S44D seq1` | Le mutant est le seul membre non contre-sélectif du squelette, mais son gain est sous le bruit. [après report] Son coût structural mesuré est de plus **le pire des douze** (−0,079), ce qui transforme un choix conservateur en choix étayé. |
+| 7 | **Design BindCraft retenu pour `a6d2f6834f22e574`** plutôt que son mutant `S44D seq1` | Le mutant est le seul membre non contre-sélectif du squelette, mais son gain est sous le bruit. [après report] Son coût structural mesuré est de plus **le pire des douze** (−0,079), ce qui transforme un choix conservateur en choix étayé. |
 | 8 | [après report] **Durcissement du critère pH** : mécanisme robuste = positif sur AF2 humain, Boltz humain **et** Boltz souris | Le critère sur une seule structure classait `36dbfc4737a3e59b_seq1` au rang 2 ; deux mesures indépendantes le contredisent. Un mécanisme qui ne survit pas au changement de structure est une propriété de la structure. |
 | 9 | [après report] **Objectif n°2 classé sur la mesure**, le proxy de séquence passant en départage | L'épitope retrouvé chez la souris par un modèle indépendant est une évidence strictement plus forte. Et le proxy était démontrablement insuffisant : il ne distinguait pas les trois designs qui perdent la moitié de leur épitope chez la souris. |
 

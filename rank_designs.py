@@ -247,7 +247,12 @@ def build() -> tuple[list[dict], list[dict]]:
         shift = number(pka.get("dpKa_H409"))
 
         entry.update({
-            "type": "frere" if design.endswith("_seq1") else "natif",
+            # `natif` / `frere` disaient une filiation qui n'existe pas : seq0 et seq1 sont
+            # DEUX sequences ProteinMPNN sur le MEME squelette (kept_sequences=2), chacune
+            # avec son rang BindCraft, ses metriques et sa structure. Aucune n'est derivee de
+            # l'autre, et seq0 n'est pas « l'originale ». Le seul type modifie est `mutant`.
+            "type": "bindcraft",
+            "index_mpnn": design.rsplit("_", 1)[-1],
             "parent": "",
             "mutations": "",
             "pont_salin_WT_verifie": geo.get("pont", ""),
@@ -347,6 +352,7 @@ def build() -> tuple[list[dict], list[dict]]:
             # accessible par la colonne `parent`.
             "design_id": f"{design}__{mutation}",
             "type": "mutant",
+            "index_mpnn": design.rsplit("_", 1)[-1],
             "parent": design,
             "mutations": mutation,
             "sequence": sequence,
@@ -628,7 +634,8 @@ def build() -> tuple[list[dict], list[dict]]:
 def main() -> None:
     entries, pairs = build()
     columns = [
-        "rang_global", "groupe", "design_id", "squelette", "run", "type", "parent",
+        "rang_global", "groupe", "design_id", "squelette", "run", "type", "index_mpnn",
+        "parent",
         "mutations", "sequence", "longueur", "charge_nette", "cysteines",
         "mecanisme_pH", "mecanisme_robustesse", "mesures_pH_positives", "palier_pH",
         "route_pH", "facteur_pH_predit", "dpKa_H409", "dpKa_humain_Boltz",

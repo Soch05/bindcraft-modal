@@ -157,8 +157,14 @@ DICTIONARY = [
      "squelette. Vide pour un natif ou un frere", "derive", "mesure"),
     ("squelette", "identite", "hash de la trajectoire BindCraft. Deux designs de meme hash "
      "partagent le squelette et ne sont pas des poses independantes", "BindCraft 2.0", "mesure"),
-    ("type", "identite", "natif = seq0 d'un squelette ; frere = seq1, meme squelette, autre "
-     "sequence ProteinMPNN ; mutant = substitution greffee par threading", "derive", "mesure"),
+    ("type", "identite", "bindcraft = sequence produite par la campagne, NON modifiee, avec "
+     "son rang BindCraft, ses metriques et sa structure propres ; mutant = substitution "
+     "greffee sur le squelette d'un design bindcraft par threading, jamais passee par les "
+     "filtres de la campagne", "derive", "mesure"),
+    ("index_mpnn", "identite", "index de la sequence ProteinMPNN sur ce squelette (seq0 ou "
+     "seq1). Avec kept_sequences=2, DEUX sequences sont conservees par squelette ; elles sont "
+     "soeurs, aucune n'est derivee de l'autre et seq0 n'est pas plus canonique que seq1",
+     "BindCraft 2.0", "mesure"),
     ("run", "identite", "campagne BindCraft d'origine (prod01 ou prod02)", "BindCraft 2.0",
      "mesure"),
     ("sequence", "identite", "sequence du binder en acides amines", "BindCraft 2.0", "mesure"),

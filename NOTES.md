@@ -3501,3 +3501,26 @@ grille discrète où les égalités fortuites sont attendues. Pas de bug.
 que chez l'humain (0,696). C'est de la variance d'échantillonnage de Boltz sur ce design, pas
 un résultat biologique — c'est d'ailleurs le design dont la récupération humaine est la plus
 basse du lot.
+
+### Nomenclature corrigée : `natif` / `frere` disait une filiation inexistante
+
+La colonne `type` de `master_rank.csv` valait `natif` pour `seq0` et `frere` pour `seq1`. Ces
+étiquettes laissaient croire que `seq0` était la séquence d'origine et `seq1` une dérivée.
+**C'est faux**, et vérifié dans les données avant correction : pour `987fe804e455bc58`, les
+deux séquences ont leur propre rang BindCraft (3 et 6), leurs propres métriques AF2
+(i_pTM 0,83 / 0,83, i_pAE 0,18 / 0,19) et leur propre structure prédite (164 Ko chacune), pour
+un squelette partagé.
+
+Une trajectoire produit un **squelette** ; ProteinMPNN propose des séquences pour ce
+squelette ; `kept_sequences=2` en garde deux. Les deux sont des sorties de campagne **non
+modifiées**, et l'index ne porte aucune hiérarchie — le lot soumis retient d'ailleurs
+plusieurs `seq1` au-dessus du `seq0` du même squelette.
+
+Nouvelle nomenclature :
+- `type` ∈ {`bindcraft`, `mutant`} — la seule distinction réelle, modifié ou pas ;
+- `index_mpnn` ∈ {`seq0`, `seq1`} — l'index ProteinMPNN, dans sa propre colonne.
+
+Vérifié : 23 `bindcraft` et 12 `mutant` ; 20 `seq0` et 15 `seq1`. Ce qui compte pour
+l'indépendance des poses reste le **squelette**, pas l'index : deux séquences de même hash ne
+sont pas deux poses indépendantes, et c'est pourquoi l'allocation n'en soumet qu'une par
+squelette.
