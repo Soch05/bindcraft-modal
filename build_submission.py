@@ -257,6 +257,38 @@ def reread(path: Path) -> dict:
     }
 
 
+def bytes_check(path: Path) -> dict:
+    """Controle au niveau OCTET, parce qu'un parseur tolerant masque ce qu'un autre refuse.
+
+    Un controle precedent affirmait « LF » en cherchant le mot CRLF dans la sortie de
+    `file`, qui ne le mentionne pas sur macOS : le test ne pouvait pas echouer, donc il ne
+    testait rien. Celui-ci lit les octets.
+    """
+    data = path.read_bytes()
+    problems = []
+    if data.startswith(b"\xef\xbb\xbf"):
+        problems.append("BOM UTF-8 present")
+    if b"\r" in data:
+        problems.append(f"{data.count(b'\r')} retour(s) chariot — fins de ligne CRLF")
+    if b'"' in data:
+        problems.append("guillemets presents")
+    if not data.endswith(b"\n"):
+        problems.append("pas de newline finale")
+    lines = [l for l in data.split(b"\n") if l.strip()]
+    if lines and lines[0] != b"name,sequence,molecule_class":
+        problems.append(f"en-tete inattendu : {lines[0]!r}")
+    counts = {l.count(b",") + 1 for l in lines}
+    if counts != {3}:
+        problems.append(f"nombre de champs par ligne : {sorted(counts)}")
+    return {
+        "controle": "octets : en-tete exact, BOM, CRLF, guillemets, champs",
+        "resultat": "OK" if not problems else "ECHEC",
+        "detail": " ; ".join(problems) or
+                  f"en-tete exact, pas de BOM, LF, {len(lines) - 1} lignes de donnees "
+                  f"a 3 champs",
+    }
+
+
 # ---------------------------------------------------------------------------------------
 # Classeur
 # ---------------------------------------------------------------------------------------
@@ -499,14 +531,22 @@ def main() -> None:
     allocation = paired_allocation(candidates)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    # FINS DE LIGNE EN LF, PAS EN CRLF.
+    #
+    # Le `csv.writer` de Python ecrit `\r\n` par defaut, ce qui est conforme a la RFC 4180
+    # et lu sans probleme par pandas. Mais un parseur qui decoupe sur `\n` sans nettoyer
+    # laisserait un `\r` colle a la DERNIERE colonne, donc lirait `single_chain\r` et le
+    # trouverait hors enumeration. LF est accepte partout et supprime cette classe de panne
+    # pour un gain nul a conserver CRLF.
     with OUT_CSV.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
+        writer = csv.writer(handle, lineterminator="\n")
         writer.writerow(["name", "sequence", "molecule_class"])
         for entry in chosen:
             writer.writerow([entry["design_id"], entry["sequence"], MOLECULE_CLASS])
 
     control_rows = checks(chosen)
     control_rows.append(reread(OUT_CSV))
+    control_rows.append(bytes_check(OUT_CSV))
     workbook(chosen, candidates, control_rows, allocation, rejected)
 
     print(f"-> {OUT_CSV} : {len(chosen)} designs")

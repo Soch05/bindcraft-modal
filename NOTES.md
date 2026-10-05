@@ -3652,3 +3652,27 @@ accepte **CSV ou FASTA** avec un modèle téléchargeable.
 C'est le troisième écart trouvé entre le règlement relevé le 1er octobre et la source vivante,
 après le 404 du domaine `design.adaptyvbio.com` et l'absence de seuil d'unicité. Le fichier
 condensé n'est pas fiable sur les détails de format.
+
+### 6 octobre — le CSV était en CRLF, et mon contrôle de fins de ligne ne testait rien
+
+Le modèle officiel téléchargé depuis le formulaire confirme l'en-tête `name,sequence,
+molecule_class`, le séparateur virgule, et `single_chain` comme valeur pour une protéine à
+chaîne unique. Il confirme aussi le `{VH}:{VL}` pour scFv et Fab, sans objet ici.
+
+**Mais la comparaison octet par octet a révélé que mon fichier était en CRLF.** Le
+`csv.writer` de Python écrit `\r\n` par défaut. C'est conforme à la RFC 4180 et pandas le lit
+sans broncher — mais un parseur qui découpe sur `\n` sans nettoyer laisse le `\r` collé à la
+**dernière** colonne, donc lit `molecule_class = "single_chain\r"` et le trouve hors
+énumération. Panne silencieuse sur le champ précisément en cause.
+
+Passé en LF via `lineterminator="\n"`, dans `build_submission.py` et dans
+`build_metadata_package.py` par cohérence.
+
+⚠️ **Mon contrôle précédent affirmait « LF » et il était faux.** Il cherchait la chaîne `CRLF`
+dans la sortie de `file`, qui ne la mentionne pas sur macOS : le test ne pouvait pas échouer,
+donc il ne testait rien. Remplacé par `bytes_check()`, qui lit les octets et vérifie l'en-tête
+exact, l'absence de BOM, l'absence de CR, l'absence de guillemets, la newline finale et le
+nombre de champs par ligne. C'est le 9e contrôle de la liste.
+
+Leçon à garder : un contrôle qui déduit une propriété de l'absence d'un mot dans la sortie
+d'un outil tiers n'est pas un contrôle.

@@ -386,13 +386,14 @@ def main() -> None:
     designs.sort(key=lambda r: (r["rank_submitted"] == "", r["rank_submitted"] or 0))
 
     with (OUT_DIR / "design_metrics.csv").open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=[f[0] for f in FIELDS])
+        writer = csv.DictWriter(handle, fieldnames=[f[0] for f in FIELDS],
+                                lineterminator="\n")
         writer.writeheader()
         writer.writerows(designs)
     (OUT_DIR / "design_metrics.json").write_text(json.dumps(designs, indent=2))
 
     with (OUT_DIR / "metric_dictionary.csv").open("w", newline="") as handle:
-        writer = csv.writer(handle)
+        writer = csv.writer(handle, lineterminator="\n")
         writer.writerow(["column", "meaning", "provenance", "status",
                          "source_file_in_repository", "source_column"])
         for key, table, column, meaning, provenance, status in FIELDS:
