@@ -6,7 +6,7 @@ submission_note,"the intent behind including this design, where it differs from 
 backbone_id,BindCraft trajectory hash. Two designs sharing it share a backbone and are NOT independent poses,BindCraft 2.0,measured,out/master_rank.csv,squelette
 mpnn_index,ProteinMPNN sequence index on that backbone (seq0 or seq1). With kept_sequences=2 two sequences are kept per backbone; neither is derived from the other,BindCraft 2.0,measured,out/master_rank.csv,index_mpnn
 campaign,generation campaign,BindCraft 2.0,measured,out/master_rank.csv,run
-sequence,binder amino-acid sequence; the literal value 'withheld' for designs that are not submitted,BindCraft 2.0,measured,out/master_rank.csv,sequence
+sequence,"binder amino-acid sequence. Present for every candidate, submitted or not, so that the funnel can be audited end to end",BindCraft 2.0,measured,out/master_rank.csv,sequence
 length_aa,number of binder residues,derived,measured,out/master_rank.csv,longueur
 net_charge,net binder charge,BindCraft 2.0,measured,out/master_rank.csv,charge_nette
 free_cysteines,"number of cysteines; zero across the whole set, which matters because expression is cell-free and free cysteines are an expression liability",BindCraft 2.0,measured,out/master_rank.csv,cysteines

@@ -3621,3 +3621,15 @@ Mais elle a remonté deux choses non anticipées :
    **transforme la mention `withheld` en affirmation fausse**. Sortir un fichier de l'arbre ne
    l'enlève pas de l'historique, exactement comme annoncé. La bascule de visibilité est donc
    suspendue en attente d'arbitrage.
+
+### 5 octobre — dépôt public complet, et la mention `withheld` retirée
+
+Arbitrage : **public complet**. La mention `withheld` du paquet de métadonnées est donc
+supprimée et les **23 séquences** sont imprimées, soumises ou non. Motif inscrit dans le
+docstring de `build_metadata_package.py` : le dépôt lié contient de toute façon chaque
+séquence — `out/master_rank.csv`, le classeur consolidé, et l'historique git — donc la mention
+aurait été fausse en étant posée à côté des données qui la contredisent. Publier en prétendant
+retenir est pire que de ne faire ni l'un ni l'autre.
+
+`METHODS.md` §12 et §1 corrigés en conséquence : l'entonnoir est auditable de bout en bout,
+métriques **et** séquences, pour les 23 candidats.

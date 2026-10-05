@@ -21,8 +21,9 @@ pKa model to two binder carboxylates and not to burial.
 a positive pKa shift on their design model, and **one** survived verification on a second
 structure and a second species. Five of the six submitted designs carry **no reproducible pH
 mechanism**; they are submitted as independent poses on a conserved, mouse-identical epitope.
-Seven further candidates were **withheld** because they are predicted *counter*-selective,
-which would be the opposite of the stated objective.
+Seven further candidates were **not submitted** because they are predicted
+*counter*-selective, which would be the opposite of the stated objective; their sequences and
+metrics are published with the rest so the cut can be checked.
 
 **Why the hit rate is one in twenty-three, and it is a method problem rather than bad luck.**
 No structure-based generator sees protonation states. AlphaFold2 and ProteinMPNN read a residue
@@ -484,7 +485,8 @@ set is **20.7 %**.
 **Why six and not thirteen.** One design per backbone yields 13. Seven of those are predicted
 **counter-selective** on the highest-ranked criterion — their binding would be disfavoured at
 pH 6.5. Submitting them would contradict the instruction to submit the designs expected to
-perform best, so they were withheld, at the cost of seven independent backbones. The quota of
+perform best, so they were not submitted, at the cost of seven independent backbones. Their
+sequences and metrics are published with the rest. The quota of
 20 is a ceiling and was never treated as a target.
 
 **The scope of that cut.** It removes designs predicted **wrong** on objective 1, not designs
@@ -582,9 +584,11 @@ Stated so that a reader need not infer them.
 | `metadata/provenance.json` | generator, folding model, pKa model, inverse-folding model, MSA construction, hardware |
 | `metadata/structures/` | per submitted design: the AlphaFold2 design model, and Boltz-2 folding models against the human and mouse targets |
 
-Metrics for withheld candidates are included so the funnel is auditable; their amino-acid
-sequences are not, since all submitted data may be made public and further challenge windows
-remain open.
+Metrics **and sequences** are included for all 23 candidates, submitted or not, so the
+selection funnel can be audited end to end: which designs were considered, which were cut, and
+on which measurement. The repository linked with this submission is public and contains the
+full analysis code, the per-run outputs and the dated working journal, including the two
+mistakes recorded in §11.
 
 **Models and tools.** BindCraft 2.0 (`a8d0f200…-dirty`) with AlphaFold2 and ProteinMPNN;
 Boltz-2 2.2.0; PROPKA 3; ProteinMPNN `v_48_020`; ESM-2 `esm2_t33_650M_UR50D` (descriptive

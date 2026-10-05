@@ -16,11 +16,15 @@ French, which is the working language of the project. This package is read by th
 workflow, so its keys and its dictionary are in English. The mapping between the two lives in
 one place — the FIELDS table below — so the two conventions cannot drift apart.
 
-WITHHELD SEQUENCES. All submitted data may be made public, and further challenge windows run
-through 1 November. The package therefore reports metrics for every candidate, so the funnel
-is auditable, but prints the amino-acid sequence only for designs that are actually
-submitted. Withheld designs carry the literal value `withheld` in the sequence column. This
-is a deliberate choice and it is stated in the dictionary rather than hidden.
+EVERY CANDIDATE IS PUBLISHED IN FULL. The package reports metrics AND sequences for all 23
+candidates, submitted or not, so that the selection funnel is auditable end to end: which
+designs were considered, which were cut, and on what measurement.
+
+An earlier version of this script printed `withheld` instead of the sequence for designs that
+are not submitted. That was dropped once it became clear that the linked repository contains
+every sequence anyway — in `out/master_rank.csv`, in the consolidated workbook, and in git
+history — so the claim would have been false while sitting next to the data that contradicted
+it. Publishing and claiming to withhold at the same time is worse than doing neither.
 
 NO EMBEDDED INSTRUCTIONS. Nothing in this package addresses a reader or asks anything of one.
 The challenge text states that embedded instructions or prompt injection may be grounds for
@@ -63,8 +67,6 @@ CAMPAIGNS = {
 AF2_STRUCTURES = Path("structures/wt")
 BOLTZ_HUMAN = Path("out/rescore01")
 BOLTZ_MOUSE = Path("out/mouse01")
-
-WITHHELD = "withheld"
 
 # NOTES DE SOUMISSION, par design. Elles decrivent l'intention derriere l'inclusion d'un
 # design et n'adressent rien a personne.
@@ -137,8 +139,8 @@ FIELDS: list[tuple[str, str, str, str, str, str]] = [
      "BindCraft 2.0", "measured"),
     ("campaign", "master", "run", "generation campaign", "BindCraft 2.0", "measured"),
     ("sequence", "master", "sequence",
-     "binder amino-acid sequence; the literal value 'withheld' for designs that are not "
-     "submitted",
+     "binder amino-acid sequence. Present for every candidate, submitted or not, so that the "
+     "funnel can be audited end to end",
      "BindCraft 2.0", "measured"),
     ("length_aa", "master", "longueur", "number of binder residues", "derived", "measured"),
     ("net_charge", "master", "charge_nette", "net binder charge",
@@ -374,7 +376,7 @@ def main() -> None:
                 row[key] = SUBMISSION_NOTES.get(design, "") if rank else ""
                 continue
             if key == "sequence":
-                row[key] = record["sequence"] if rank else WITHHELD
+                row[key] = record["sequence"]
                 continue
             source = tables.get(table, {}).get(design, {})
             value = source.get(column, "")
