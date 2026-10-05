@@ -3189,3 +3189,152 @@ dans BindCraft. Un mutant est une hypothèse à faire scorer ailleurs.
 distance du pont salin, déduplication par squelette — est passée dans la feuille `selection`,
 où elle sert directement. Son classement opiniâtre n'avait pas à vivre dans le dépôt alors que
 la sélection finale est un arbitrage humain.
+
+---
+
+## 5 octobre, 00:30 – 06:00 — nuit de soumission, en autonomie
+
+Travail mené seul, l'auteur dormant, sur la base d'un plan en 8 phases laissé en consigne.
+Rapport complet dans [docs/SUBMISSION_REPORT.md](docs/SUBMISSION_REPORT.md), 955 lignes.
+Cette entrée est le journal technique : commandes, débits, coûts, décisions.
+
+### ⚠️ `rank_designs.py` est RECRÉÉ — décision à valider
+
+Ce fichier avait été **supprimé volontairement le 5 octobre** (entrée précédente de ce
+journal), au motif que « son classement opiniâtre n'avait pas à vivre dans le dépôt alors que
+la sélection finale est un arbitrage humain ». Il est réintroduit parce que la phase 6 de la
+consigne demande explicitement `out/master_rank.csv` et un classement lexicographique.
+
+Ce qui a changé et qui justifie le retour : il ne classe plus sur une opinion mais sur des
+**ΔpKa PROPKA mesurés**, et son critère pH est **discrétisé en trois paliers** précisément
+pour ne pas lire un ordre dans le bruit du modèle. Si l'arbitrage humain reste préféré, le
+fichier à jeter est `rank_designs.py` ; `out/master_rank.csv` et le classeur restent lisibles
+sans lui.
+
+### Commandes, dans l'ordre
+
+```
+uv run python thread_mutants.py                                   # 12 mutants, 36 rotameres
+uv run --with gemmi python prepare_structures.py                  # 23 cif -> pdb, numerotation
+uv run --with biopython python verify_geometry.py                  # phases 1e, 1g, 2b
+uv run --with propka --with gemmi python propka_scan.py            # 141 runs, 3 en parallele
+uv run --with requests --with gemmi python fetch_msa.py            # MSA cible, 3725 sequences
+modal run modal_boltz2.py::selfcheck                               # validation GPU
+modal run modal_boltz2.py::diagnose                                # UN complexe, sortie visible
+modal run modal_boltz2.py::rescore --run-name rescore01            # 23 complexes
+modal volume get bindcraft 'boltz/rescore01' out/
+uv run --with biopython --with gemmi python contact_recovery.py    # recuperation de contacts
+uv run --with biopython python bidentate_rule.py                   # regle de conception
+uv run python rank_designs.py                                      # master_rank + paires
+uv run --with openpyxl --with biopython --with pandas python build_submission.py
+```
+
+### Débits et coûts mesurés
+
+| étape | matériel | durée | coût |
+|---|---|---|---|
+| threading PyMOL, 12 mutants | CPU local | ~3 min | 0 |
+| PROPKA, 141 runs, 3 workers | CPU local | ~10 min | 0 |
+| MSA ColabFold, 198 résidus, mode `env` | API distante | **33 s** | 0 |
+| build image Boltz-2 | — | ~6 min | 0 |
+| `selfcheck` Boltz | L40S | ~2 min | ~$0,07 |
+| **série ratée** (noyau manquant) | L40S | 7 min | **~$0,23** |
+| `diagnose`, 1 complexe | L40S | 72 s + 44 s | ~$0,06 |
+| `rescore`, 23 complexes | L40S | **~26 min**, 67 s/complexe | **~$0,83** |
+| récupération de contacts, 69 structures | CPU local | ~3 h 30 | 0 |
+| **total GPU de la nuit** | | | **~$1,19** |
+
+La récupération de contacts est le poste le plus lent de la nuit et c'est du pur CPU local :
+boucles Python sur 198 × ~70 résidus × atomes lourds, 69 structures. À vectoriser si l'étape
+doit resservir.
+
+### Résultats
+
+**Phase 1g — ponts salins WT.** 11 designs sur 6 squelettes confirmés, distances reproduisant
+exactement `mutants_acide.csv`. Apport nouveau : l'angle à l'oxygène accepteur. Le pont de
+2,52 Å de `692deac2f1034bb6` est **plausible** — c'est le contact le plus court de son
+voisinage (donc pas de recouvrement) et son angle de 128,4° est le meilleur des onze. À
+l'inverse `9526c9216eb7d6db` (2,42 Å, 96°) ressemble beaucoup plus à un artefact.
+
+**Phase 1e — les mutants.** Sur 12, **3 seulement** ont un rotamère à la fois à portée de H409
+(≤ 4,0 Å) et sans clash. `S28D` est structurellement impossible (3/3 rotamères en clash). Cause
+identifiée : le proxy de sélection était la distance **CB**→H409, qui ne dit pas où arrive le
+carboxylate. Seuil réel ~4,3 Å de CB, jamais posé.
+
+**Phase 3 — PROPKA.** Numérotation vérifiée sur les **23** structures (A409=HIS et empreinte
+des 6 His conforme partout). **2 designs sur 23** font monter le pKa de H409 :
+`692deac2f1034bb6_seq0` à **ΔpKa +2,84** (facteur 5,28) et `36dbfc4737a3e59b_seq1` à **+0,96**
+(facteur 2,60). Les 21 autres sont nuls ou **négatifs** (jusqu'à −2,89), donc
+contre-sélectifs. Décomposition pour le premier : la hausse vient des **deux carboxydates du
+binder** `ASP56` (+1,60 liaison H, +1,39 coulombien) et `GLU73` (+1,60, +0,54) ; la
+désolvatation contribue **négativement** (−2,50). Pas un artefact d'enfouissement.
+
+**Facteur de sélectivité global** (produit sur tous les groupes ionisables, forme du couplage
+proton–ligand) : concorde avec H409 seul sur la tête (5,49 vs 5,28 ; 2,39 vs 2,60) et
+n'exhume **aucun** candidat caché. Le scan non biaisé trouve `ASP436A` qui monte beaucoup mais
+reste déprotoné aux deux pH, donc sans effet ; seul `ASP344A` dans `fd5dae7987a2388d` atteint
+6,08, dans la fenêtre utile, pour ~1,3× — piste, pas mécanisme.
+
+**Phase 5 — appariée.** **1 mutation améliore, 4 neutres, 7 dégradent.** La seule qui améliore,
+`S44D` sur `a6d2f6834f22e574_seq1`, fait passer le ΔpKa de −2,85 à **+0,23** (ΔΔpKa +3,08,
+étendue rotamères 0,06, carboxylate VERT) — elle **répare** un design contre-sélectif, elle ne
+crée pas de switch. `S15D`, le seul autre mutant à portée, porte un `ASP15` à pKa **8,67–8,77**
+sur tous ses rotamères : neutre aux deux pH, donc incapable de former le pont pour lequel il a
+été introduit. Verdict ROUGE.
+
+**Phase 4 — Boltz-2.** 23/23 complexes. Récupération de contacts **0,70 à 0,97**, iptm
+**0,85 à 0,96**. Les poses d'AF2 ne sont pas des artefacts d'AF2. **Mais le seuil de « pose
+confirmée » que j'ai posé (≥ 0,50 / ≥ 0,60) ne discrimine rien** : les 23 le passent. Il
+n'apporte aucune information de classement, et c'est écrit comme tel.
+
+**Règle de conception** (`bidentate_rule.py`). Les 2 designs à mécanisme ont **deux résidus
+carboxylate distincts**, un par azote de l'imidazole, goulot 3,34–3,35 Å. Les 21 autres :
+4,54–6,40 Å, ou aucune paire possible (18 cas). Séparation nette à 1,19 Å de marge. **Borne à
+mettre** : la comparaison informative est 2 contre 3 parmi les 5 designs capables de former la
+paire, où un partage propre a ~10 % de chance sous l'hypothèse nulle. Suggestive, testable,
+**non établie**, et elle n'entre dans aucun critère de classement.
+
+### Soumission
+
+`submission/egfr_challenge1_submission.csv` — **13 designs**, un par squelette, ordonnés.
+Quota de 20 non atteint et **non complété**. Identité maximale entre deux lignes : **25,4 %**.
+Les 8 contrôles passent, dont la relecture de chaque séquence **dans son fichier de structure**.
+
+Rangs 1 et 2 = les deux designs à mécanisme pH mesuré. Rangs 3 à 13 = palier neutre puis
+contre-sélectif, ordonnés sur la conservation souris (objectif n°2) et non sur le ΔpKa, dont
+les écarts y sont sous le bruit de PROPKA.
+
+### Erreurs de la nuit, conservées
+
+1. Proxy CB→H409 pour choisir les positions de mutation : ne prédit pas la portée du
+   carboxylate. 4 mutations sur 12 hors de portée.
+2. Tri des rotamères par contact le plus serré : aveugle quand le contact minimal est porté par
+   le CB, qui ne bouge pas. `P39D` a 3 rotamères quasi identiques (étendue de centroïde
+   0,25 Å).
+3. Moyenne du facteur de sélectivité sur les rotamères : fonction non linéaire du pKa, donc
+   moyenne incohérente avec le ΔpKa moyen. Corrigé.
+4. Échec Boltz-2 attribué à tort à la MSA. La vraie cause était
+   `ModuleNotFoundError: cuequivariance_torch` — boltz 2.2.0 appelle inconditionnellement un
+   noyau cuEquivariance que `pip install boltz` ne tire pas. Correctif : `--no_kernels`.
+   Le commentaire de code qui affirmait le contraire a été corrigé.
+5. Série GPU lancée sans vérifier un complexe d'abord : 7 min de L40S pour zéro prédiction,
+   **code retour 0**. Entrypoint `diagnose` ajouté, et `predict` imprime désormais la sortie
+   de boltz dès qu'une prédiction manque quel que soit le code retour.
+6. Vérifications `pgrep -f "modal run modal_boltz2"` qui se détectaient elles-mêmes : le motif
+   figurait dans la ligne de commande du test. D'où des « run en cours » faux.
+
+### Décisions prises en autonomie
+
+1. **Allocation « couverture maximale »**, 13 designs, un par squelette — le règlement ne dit
+   pas comment l'unicité est évaluée entre designs d'un même participant, et la consigne
+   demandait une confirmation explicite qui n'existe pas.
+2. **GPU sur les 23 natifs, pas sur les mutants** — déjà disqualifiés par PROPKA. Conséquence
+   acceptée : phase 5c non mesurée.
+3. **Règle d'éligibilité des mutants** (mécanisme robuste ET carboxylate VERT) — aucun des 12
+   ne passe.
+4. **Critère pH discrétisé** en trois paliers.
+5. **3 échantillons de diffusion** au lieu de 3 graines (tronc déterministe).
+6. **ESM-2 non calculé** — hors classement par construction.
+7. **Design natif retenu pour `a6d2f6834f22e574`** plutôt que son mutant `S44D seq1`, seul
+   membre non contre-sélectif du squelette mais gain sous le bruit et structure non relaxée.
+   Choix conservateur, réversible en une ligne.
