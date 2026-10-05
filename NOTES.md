@@ -3468,3 +3468,36 @@ arbitrer : sauvegarde hors dépôt, ou ajout ciblé des `!_Ranked.csv` (quelques
 **Note d'environnement** : le push a échoué deux fois en `HTTP 400 / RPC failed` avant qu'un
 `git config http.postBuffer 524288000` ne le fasse passer. Le dépôt est **privé**
 (`gh repo view` → `isPrivate: true`), donc le push ne publie rien.
+
+### Classeur consolidé pour le dépôt, et un bug de clé corrigé au passage
+
+[build_metrics_workbook.py](build_metrics_workbook.py) → `docs/egfr_metrics_consolidated.xlsx`,
+72 Ko, 14 onglets. Distinct de `submission/egfr_analysis.xlsx`, qui reste la copie de travail :
+celui-ci est destiné à être lu **sans le reste du dépôt**, d'où un onglet `Dictionnaire`
+(44 colonnes documentées une par une : signification, source, statut) et un onglet `Seuils`.
+
+**Les seuils sont importés depuis les modules, jamais recopiés.** `build_metrics_workbook.py`
+fait un `importlib.import_module` sur `rank_designs`, `verify_geometry`, `contact_recovery`,
+`bidentate_rule`, `build_submission`, `mouse_target` et `propka_scan`, et lit les constantes
+dedans. Une divergence entre le code et la documentation est donc impossible par
+construction. Les 22 constantes sont lues correctement.
+
+**⚠️ Bug trouvé en construisant le classeur : `design_id` n'était PAS une clé unique dans
+`master_rank.csv`.** Les mutants reprenaient l'identifiant de leur parent et ne s'en
+distinguaient que par la colonne `mutations`. L'onglet Synthèse est sorti à 20 lignes au lieu
+de 13 — la jointure sur `design_id` ramenait chaque design soumis **plus tous ses mutants**.
+Corrigé dans `rank_designs.py` : un mutant porte désormais `<parent>__<mutation>`, et la
+colonne `parent` donne l'accès au squelette. Vérifié : 35 lignes, 35 identifiants distincts.
+C'est le genre de défaut qui ne casse rien visiblement et qui fausse toute analyse en aval.
+
+**Fausse alerte vérifiée, pas supposée** : `epitope_souris_retrouve` et
+`recuperation_contacts` sont identiques sur 4 designs sur 23, ce qui ressemblait à un bug de
+jointure. Vérification sur les 23 et sur les détails par échantillon : les valeurs diffèrent
+partout ailleurs (0,604 vs 0,811 ; 0,479 vs 0,917) et les minima par échantillon ne
+coïncident pas. Avec 46 à 76 paires de contacts au dénominateur, le ratio tombe sur une
+grille discrète où les égalités fortuites sont attendues. Pas de bug.
+
+À noter aussi : `5c3ec1903e03c261_seq0` retrouve **mieux** l'épitope chez la souris (0,911)
+que chez l'humain (0,696). C'est de la variance d'échantillonnage de Boltz sur ce design, pas
+un résultat biologique — c'est d'ailleurs le design dont la récupération humaine est la plus
+basse du lot.

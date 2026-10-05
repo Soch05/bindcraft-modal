@@ -341,6 +341,11 @@ def build() -> tuple[list[dict], list[dict]]:
 
         parent_shift = number(wt_h409.get(design, {}).get("dpKa_H409"))
         entry.update({
+            # IDENTIFIANT PROPRE AU MUTANT. Jusqu'au 5 octobre il reprenait celui du parent,
+            # et `design_id` n'etait donc PAS une cle unique dans master_rank.csv : une
+            # jointure dessus ramenait le parent et tous ses mutants. Le parent reste
+            # accessible par la colonne `parent`.
+            "design_id": f"{design}__{mutation}",
             "type": "mutant",
             "parent": design,
             "mutations": mutation,
@@ -438,9 +443,11 @@ def build() -> tuple[list[dict], list[dict]]:
         )
 
         # ESM-2 : DESCRIPTIF. N'entre dans aucun tri — voir le docstring du module.
-        key = (f"{entry['design_id']}__{entry['mutations']}"
-               if entry["type"] == "mutant" else entry["design_id"])
-        entry["ESM2_PLL"] = esm2.get(key, {}).get("ESM2_PLL_par_residu", "non mesure")
+        # `design_id` est desormais unique, et modal_esm2.py a indexe les mutants sous
+        # `<parent>__<mutation>`, qui est exactement cette valeur.
+        entry["ESM2_PLL"] = esm2.get(entry["design_id"], {}).get(
+            "ESM2_PLL_par_residu", "non mesure"
+        )
 
     def mechanism_robustness(entry: dict) -> tuple[str, int, int]:
         """Le mécanisme pH tient-il sur PLUSIEURS structures et sur LES DEUX espèces ?
